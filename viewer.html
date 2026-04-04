@@ -8,6 +8,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a1a; color: #ccc; font-family: monospace; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; }
+
     #ui {
       position: fixed; top: 16px; right: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
@@ -23,18 +24,41 @@
     }
     button:hover { background: #333; border-color: #888; }
     button:disabled { opacity: 0.4; cursor: default; }
+
     #waiting {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       font-size: 13px; letter-spacing: 0.1em; color: #555;
+      pointer-events: none;
     }
+
+    /* Matcap swatch bar */
+    #matcap-bar {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 10px; align-items: center;
+      background: rgba(20,20,20,0.75); border: 1px solid #333;
+      padding: 10px 14px; backdrop-filter: blur(4px);
+    }
+    .swatch {
+      width: 48px; height: 48px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      background-size: cover; background-position: center;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .swatch:hover { transform: scale(1.12); border-color: #888; }
+    .swatch.active { border-color: #fff; }
   </style>
 </head>
 <body>
   <div id="canvas-container"></div>
   <div id="waiting">WAITING FOR MODEL</div>
+
   <div id="ui">
     <div id="status">DISCONNECTED</div>
     <button id="dl-btn" disabled>DOWNLOAD OBJ</button>
+  </div>
+
+  <div id="matcap-bar">
+    <!-- swatches injected by JS -->
   </div>
 
   <script type="importmap">
@@ -51,12 +75,23 @@
     import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+    // ─── Matcap list — rename files to match, or edit these names ───────────
+    const MATCAPS = [
+      'BaseMatCap_102.png',
+      'BaseMatCap_106.png',
+      'BaseMatCap_110.png',
+      'BaseMatCap_111.png',
+      'BaseMatCap_112.png',
+      'BaseMatCap_115.png',
+    ];
+    const DEFAULT_MATCAP = 0;  // index into MATCAPS
+    // ─────────────────────────────────────────────────────────────────────────
+
     // --- Scene Setup ---
     const container = document.getElementById('canvas-container');
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -69,17 +104,11 @@
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
 
-    // Lighting
+    // Lighting (used if fallback to standard material)
     scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const key = new THREE.DirectionalLight(0xffffff, 1.2);
-    key.position.set(1, 2, 2);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x8899bb, 0.4);
-    fill.position.set(-2, 0, -1);
-    scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffffff, 0.3);
-    rim.position.set(0, -1, -2);
-    scene.add(rim);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    keyLight.position.set(1, 2, 2);
+    scene.add(keyLight);
 
     // Grid reference
     const grid = new THREE.GridHelper(500, 20, 0x333333, 0x2a2a2a);
@@ -91,19 +120,45 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // --- Material ---
+    const texLoader = new THREE.TextureLoader();
+    let activeMaterial = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
+
+    function applyMatcap(index) {
+      texLoader.load('/matcaps/' + MATCAPS[index], tex => {
+        activeMaterial.matcap = tex;
+        activeMaterial.needsUpdate = true;
+      });
+      // Update swatch highlight
+      document.querySelectorAll('.swatch').forEach((el, i) => {
+        el.classList.toggle('active', i === index);
+      });
+    }
+
+    // --- Build swatch bar ---
+    const bar = document.getElementById('matcap-bar');
+    MATCAPS.forEach((name, i) => {
+      const div = document.createElement('div');
+      div.className = 'swatch';
+      div.style.backgroundImage = `url('/matcaps/${name}')`;
+      div.title = name;
+      div.addEventListener('click', () => applyMatcap(i));
+      bar.appendChild(div);
+    });
+
+    // Load default matcap
+    applyMatcap(DEFAULT_MATCAP);
+
     // --- Mesh Management ---
     let currentObj = null;
     let currentObjString = null;
     const loader = new OBJLoader();
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xcccccc, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide
-    });
 
     function loadOBJ(objString) {
       if (currentObj) scene.remove(currentObj);
       const obj = loader.parse(objString);
       obj.traverse(child => {
-        if (child.isMesh) child.material = material;
+        if (child.isMesh) child.material = activeMaterial;
       });
 
       // Auto-center and fit camera
@@ -146,7 +201,6 @@
 
     function connect() {
       ws = new WebSocket(WS_URL);
-
       ws.onopen = () => { statusEl.textContent = 'LIVE'; statusEl.style.color = '#8f8'; };
       ws.onclose = () => {
         statusEl.textContent = 'RECONNECTING';
@@ -154,7 +208,6 @@
         setTimeout(connect, 2000);
       };
       ws.onerror = () => ws.close();
-
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
         if (msg.type === 'mesh') loadOBJ(msg.data);
