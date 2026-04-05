@@ -9,10 +9,18 @@
     body { background: #1a1a1a; color: #ccc; font-family: monospace; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; }
 
+    /* Right panel — status, headform, download */
     #ui {
       position: fixed; top: 16px; right: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     }
+
+    /* Left panel — curves toggle */
+    #ui-left {
+      position: fixed; top: 16px; left: 16px;
+      display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+    }
+
     #status {
       background: #222; border: 1px solid #444;
       padding: 6px 10px; font-size: 11px; letter-spacing: 0.05em;
@@ -52,10 +60,16 @@
   <div id="canvas-container"></div>
   <div id="waiting">WAITING FOR MODEL</div>
 
+  <!-- Right panel -->
   <div id="ui">
     <div id="status">DISCONNECTED</div>
     <button id="headform-toggle" type="button" disabled>HIDE HEADFORM</button>
     <button id="dl-btn" disabled>DOWNLOAD OBJ</button>
+  </div>
+
+  <!-- Left panel -->
+  <div id="ui-left">
+    <button id="curves-toggle" type="button" disabled>SHOW CURVES</button>
   </div>
 
   <div id="matcap-bar">
@@ -76,7 +90,7 @@
     import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    // ─── Matcap list — rename files to match, or edit these names ───────────
+    // ─── Matcap list ──────────────────────────────────────────────────────────
     const MATCAPS = [
       'BaseMatCap_102.png',
       'BaseMatCap_106.png',
@@ -85,8 +99,8 @@
       'BaseMatCap_112.png',
       'BaseMatCap_115.png',
     ];
-    const DEFAULT_MATCAP = 0;  // index into MATCAPS (helmet only)
-    const HEADFORM_MATCAP = 'BaseMatCap_102.png';  // headform never uses swatches
+    const DEFAULT_MATCAP  = 0;
+    const HEADFORM_MATCAP = 'BaseMatCap_102.png';
     const VIEWER_BACKGROUND = '/images/RadialGray.jpg';
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -98,10 +112,9 @@
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a);  // fallback if background image fails
+    scene.background = new THREE.Color(0x1a1a1a);
 
     const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 2000);
-    // Start 180° around Y vs +Z so we face the front of the head (not the back).
     camera.position.set(0, 0, -1000);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -110,7 +123,6 @@
     controls.dampingFactor = 0.08;
     controls.update();
 
-    // Lighting (used if fallback to standard material)
     scene.add(new THREE.AmbientLight(0xffffff, 0.4));
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
     keyLight.position.set(1, 2, 2);
@@ -122,7 +134,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // --- Material ---
+    // --- Materials ---
     const texLoader = new THREE.TextureLoader();
     texLoader.load(VIEWER_BACKGROUND, tex => {
       tex.colorSpace = THREE.SRGBColorSpace;
@@ -134,6 +146,7 @@
       headformMaterial.matcap = tex;
       headformMaterial.needsUpdate = true;
     });
+
     let activeMaterial = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
 
     function applyMatcap(index) {
@@ -141,13 +154,12 @@
         activeMaterial.matcap = tex;
         activeMaterial.needsUpdate = true;
       });
-      // Update swatch highlight
       document.querySelectorAll('.swatch').forEach((el, i) => {
         el.classList.toggle('active', i === index);
       });
     }
 
-    // --- Build swatch bar ---
+    // --- Swatch bar ---
     const bar = document.getElementById('matcap-bar');
     MATCAPS.forEach((name, i) => {
       const div = document.createElement('div');
@@ -157,24 +169,20 @@
       div.addEventListener('click', () => applyMatcap(i));
       bar.appendChild(div);
     });
-
-    // Load default matcap
     applyMatcap(DEFAULT_MATCAP);
 
-    // --- Mesh Management (file coords preserved: origin 0,0,0, no scale) ---
+    // --- Mesh ---
     const HEADFORM_URL = '/mesh/headform.obj';
-    let headformRoot = null;
-    let helmetRoot = null;
+    let headformRoot    = null;
+    let helmetRoot      = null;
     let currentObjString = null;
     const loader = new OBJLoader();
 
     const headformBtn = document.getElementById('headform-toggle');
-    const waitingEl = document.getElementById('waiting');
+    const waitingEl   = document.getElementById('waiting');
 
     function applyMaterialToMeshes(obj, material) {
-      obj.traverse(child => {
-        if (child.isMesh) child.material = material;
-      });
+      obj.traverse(child => { if (child.isMesh) child.material = material; });
     }
 
     function syncHeadformButton() {
@@ -197,13 +205,11 @@
       helmetRoot = obj;
       currentObjString = objString;
       document.getElementById('dl-btn').disabled = false;
+      waitingEl.style.display = 'none';
     }
 
     fetch(HEADFORM_URL)
-      .then(r => {
-        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
-        return r.text();
-      })
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(text => {
         headformRoot = loader.parse(text);
         applyMaterialToMeshes(headformRoot, headformMaterial);
@@ -227,15 +233,58 @@
       URL.revokeObjectURL(a.href);
     });
 
+    // ── Curves ───────────────────────────────────────────────────────────────
+    let curveGroup  = null;   // THREE.Group holding all Line objects
+    let curvesVisible = false; // start hidden
+
+    const curvesBtn = document.getElementById('curves-toggle');
+
+    function syncCurvesButton() {
+      curvesBtn.textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
+      if (curveGroup) curveGroup.visible = curvesVisible;
+    }
+
+    curvesBtn.addEventListener('click', () => {
+      curvesVisible = !curvesVisible;
+      syncCurvesButton();
+    });
+
+    function loadCurves(data) {
+      // Remove previous curve group
+      if (curveGroup) scene.remove(curveGroup);
+
+      const curves = typeof data === 'string' ? JSON.parse(data) : data;
+      const group  = new THREE.Group();
+
+      curves.forEach(curve => {
+        const points   = curve.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: curve.color || 0xffffff,
+          linewidth: 1   // >1 only works on some GPUs
+        });
+        group.add(new THREE.Line(geometry, material));
+      });
+
+      group.visible = curvesVisible;
+      scene.add(group);
+      curveGroup = group;
+
+      // Enable button once curves arrive
+      curvesBtn.disabled = false;
+      syncCurvesButton();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // --- WebSocket ---
     const statusEl = document.getElementById('status');
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${proto}//${window.location.host}`;
     let ws;
 
     function connect() {
       ws = new WebSocket(WS_URL);
-      ws.onopen = () => { statusEl.textContent = 'LIVE'; statusEl.style.color = '#8f8'; };
+      ws.onopen  = () => { statusEl.textContent = 'LIVE'; statusEl.style.color = '#8f8'; };
       ws.onclose = () => {
         statusEl.textContent = 'RECONNECTING';
         statusEl.style.color = '#fa0';
@@ -244,7 +293,8 @@
       ws.onerror = () => ws.close();
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'mesh') loadHelmet(msg.data);
+        if (msg.type === 'mesh')   loadHelmet(msg.data);
+        if (msg.type === 'curves') loadCurves(msg.data);
       };
     }
 
