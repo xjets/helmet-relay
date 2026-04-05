@@ -87,6 +87,7 @@
     ];
     const DEFAULT_MATCAP = 0;  // index into MATCAPS (helmet only)
     const HEADFORM_MATCAP = 'BaseMatCap_102.png';  // headform never uses swatches
+    const VIEWER_BACKGROUND = '/images/RadialGray.jpg';
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- Scene Setup ---
@@ -97,7 +98,7 @@
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a);
+    scene.background = new THREE.Color(0x1a1a1a);  // fallback if background image fails
 
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
     // Start 180° around Y vs +Z so we face the front of the head (not the back).
@@ -115,10 +116,6 @@
     keyLight.position.set(1, 2, 2);
     scene.add(keyLight);
 
-    // Grid reference
-    const grid = new THREE.GridHelper(500, 20, 0x333333, 0x2a2a2a);
-    scene.add(grid);
-
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -127,6 +124,11 @@
 
     // --- Material ---
     const texLoader = new THREE.TextureLoader();
+    texLoader.load(VIEWER_BACKGROUND, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      scene.background = tex;
+    });
+
     const headformMaterial = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
     texLoader.load('/matcaps/' + HEADFORM_MATCAP, tex => {
       headformMaterial.matcap = tex;

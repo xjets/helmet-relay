@@ -11,6 +11,7 @@ app.use(cors());
 app.use(express.text({ type: '*/*', limit: '50mb' }));
 app.use('/matcaps', express.static(__dirname + '/matcaps'));
 app.use('/mesh', express.static(__dirname + '/mesh'));
+app.use('/images', express.static(__dirname + '/images'));
 
 let currentMesh = null;
 
