@@ -22,8 +22,13 @@
     }
 
     #status {
+      display: flex; align-items: center; gap: 6px;
       background: #222; border: 1px solid #444;
       padding: 6px 10px; font-size: 11px; letter-spacing: 0.05em;
+    }
+    #status-dot {
+      width: 1em; height: 1em; border-radius: 50%;
+      background: currentColor; flex-shrink: 0;
     }
 
     /* Base button */
@@ -101,19 +106,19 @@
   <div id="canvas-container"></div>
   <div id="waiting">WAITING FOR MODEL</div>
 
-  <!-- Right panel: mesh toggles, status, download -->
+  <!-- Right panel: status + mesh toggles -->
   <div id="ui">
+    <div id="status"><span id="status-dot"></span><span id="status-text">DISCONNECTED</span></div>
     <button id="btn-shell"    >SHELL</button>
     <button id="btn-crumple"  >CRUMPLE</button>
     <button id="btn-headform" >HEADFORM</button>
     <button id="btn-head"     >HEAD</button>
-    <div id="status">DISCONNECTED</div>
-    <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
-  <!-- Left panel: curves -->
+  <!-- Left panel: curves + download -->
   <div id="ui-left">
-    <button id="curves-toggle">CURVES</button>
+    <button id="curves-toggle">SHOW CURVES</button>
+    <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
   <!-- Bottom centre -->
@@ -294,7 +299,7 @@
 
     // --- Download (shell OBJ) ---
     const dlBtn = document.getElementById('dl-btn');
-    dlBtn.classList.add('populated');   // always available as a button
+    dlBtn.classList.add('populated');
     dlBtn.addEventListener('click', () => {
       const s = targets.shell.objString;
       if (!s) return;
@@ -320,6 +325,7 @@
     function syncCurvesButton() {
       curvesBtn.classList.toggle('populated',   curveGroup !== null);
       curvesBtn.classList.toggle('hidden-mesh', curveGroup !== null && !curvesVisible);
+      curvesBtn.textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
       if (curveGroup) curveGroup.visible = curvesVisible;
     }
 
@@ -348,16 +354,23 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---
-    const statusEl = document.getElementById('status');
-    const proto    = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const WS_URL   = `${proto}//${window.location.host}`;
+    const statusText = document.getElementById('status-text');
+    const statusDot  = document.getElementById('status-dot');
+    const statusEl   = document.getElementById('status');
+    const proto      = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL     = `${proto}//${window.location.host}`;
     let ws;
+
+    function setStatus(text, color) {
+      statusText.textContent = text;
+      statusEl.style.color   = color;
+    }
 
     function connect() {
       ws = new WebSocket(WS_URL);
-      ws.onopen  = () => { statusEl.textContent = 'LIVE'; statusEl.style.color = '#8f8'; };
+      ws.onopen  = () => setStatus('LIVE', '#8f8');
       ws.onclose = () => {
-        statusEl.textContent = 'RECONNECTING'; statusEl.style.color = '#fa0';
+        setStatus('RECONNECTING', '#fa0');
         setTimeout(connect, 2000);
       };
       ws.onerror = () => ws.close();
