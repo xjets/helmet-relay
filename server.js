@@ -14,28 +14,56 @@ app.use('/matcaps', express.static(__dirname + '/matcaps'));
 app.use('/mesh',    express.static(__dirname + '/mesh'));
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentMesh   = null;
-let currentCurves = null;
+let currentShell    = null;
+let currentCrumple  = null;
+let currentHeadform = null;
+let currentHead     = null;
+let currentCurves   = null;
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Mesh upload — Processing POSTs OBJ text here
-app.post('/upload', (req, res) => {
-  currentMesh = req.body;
-  const payload = JSON.stringify({ type: 'mesh', data: currentMesh });
+function broadcast(payload) {
+  const msg = JSON.stringify(payload);
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(payload);
+    if (client.readyState === 1) client.send(msg);
   });
-  console.log(`Mesh pushed: ${currentMesh.length} bytes, viewers: ${wss.clients.size}`);
+}
+
+// Shell
+app.post('/upload', (req, res) => {
+  currentShell = req.body;
+  broadcast({ type: 'shell', data: currentShell });
+  console.log(`Shell pushed: ${currentShell.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
 });
 
-// Curve upload — Rhino GhPython POSTs JSON array of curves here
+// Crumple
+app.post('/upload-crumple', (req, res) => {
+  currentCrumple = req.body;
+  broadcast({ type: 'crumple', data: currentCrumple });
+  console.log(`Crumple pushed: ${currentCrumple.length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
+// Headform
+app.post('/upload-headform', (req, res) => {
+  currentHeadform = req.body;
+  broadcast({ type: 'headform', data: currentHeadform });
+  console.log(`Headform pushed: ${currentHeadform.length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
+// Head (rarely changes — default loaded client-side from /mesh/AngularHead.obj)
+app.post('/upload-head', (req, res) => {
+  currentHead = req.body;
+  broadcast({ type: 'head', data: currentHead });
+  console.log(`Head pushed: ${currentHead.length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
+// Curves
 app.post('/upload-curves', (req, res) => {
   currentCurves = req.body;
-  const payload = JSON.stringify({ type: 'curves', data: currentCurves });
-  wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(payload);
-  });
+  broadcast({ type: 'curves', data: currentCurves });
   console.log(`Curves pushed: ${JSON.stringify(currentCurves).length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
 });
@@ -45,11 +73,14 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/viewer.html');
 });
 
-// WebSocket: send current state to newly connected browser
+// Send full state to newly connected browser
 wss.on('connection', ws => {
   console.log('Viewer connected');
-  if (currentMesh)   ws.send(JSON.stringify({ type: 'mesh',   data: currentMesh }));
-  if (currentCurves) ws.send(JSON.stringify({ type: 'curves', data: currentCurves }));
+  if (currentShell)    ws.send(JSON.stringify({ type: 'shell',    data: currentShell }));
+  if (currentCrumple)  ws.send(JSON.stringify({ type: 'crumple',  data: currentCrumple }));
+  if (currentHeadform) ws.send(JSON.stringify({ type: 'headform', data: currentHeadform }));
+  if (currentHead)     ws.send(JSON.stringify({ type: 'head',     data: currentHead }));
+  if (currentCurves)   ws.send(JSON.stringify({ type: 'curves',   data: currentCurves }));
   ws.on('close', () => console.log('Viewer disconnected'));
 });
 

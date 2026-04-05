@@ -9,13 +9,13 @@
     body { background: #1a1a1a; color: #ccc; font-family: monospace; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; }
 
-    /* Right panel — status, headform, download */
+    /* Right panel — mesh toggles + status + download */
     #ui {
       position: fixed; top: 16px; right: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     }
 
-    /* Left panel — shell + curves toggles */
+    /* Left panel — curves toggle */
     #ui-left {
       position: fixed; top: 16px; left: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
@@ -25,13 +25,30 @@
       background: #222; border: 1px solid #444;
       padding: 6px 10px; font-size: 11px; letter-spacing: 0.05em;
     }
+
+    /* Base button */
     button {
-      background: #222; border: 1px solid #555; color: #ccc;
+      background: #1e1e1e; border: 1px solid #2a2a2a; color: #383838;
       padding: 8px 14px; font-family: monospace; font-size: 11px;
-      cursor: pointer; letter-spacing: 0.05em;
+      cursor: default; letter-spacing: 0.08em;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+      min-width: 100px; text-align: center;
     }
-    button:hover { background: #333; border-color: #888; }
-    button:disabled { opacity: 0.4; cursor: default; }
+
+    /* Populated — mesh has arrived, clickable */
+    button.populated {
+      color: #d0d0d0; border-color: #666; background: #222; cursor: pointer;
+    }
+    button.populated:hover { background: #2a2a2a; border-color: #999; }
+
+    /* Populated but visibility toggled off */
+    button.populated.hidden-mesh {
+      color: #555; border-color: #3a3a3a; background: #1e1e1e;
+    }
+    button.populated.hidden-mesh:hover { color: #888; border-color: #666; }
+
+    /* Curves button — same populated logic */
+    #curves-toggle { min-width: 110px; }
 
     #waiting {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -39,42 +56,32 @@
       pointer-events: none;
     }
 
-    /* Bottom centre — matcap bar + alpha slider stacked */
+    /* Bottom centre — alpha slider + matcap bar */
     #bottom-centre {
       position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       display: flex; flex-direction: column; gap: 8px; align-items: stretch;
     }
 
-    /* Alpha slider row */
     #alpha-row {
       display: flex; align-items: center; gap: 10px;
       background: rgba(20,20,20,0.75); border: 1px solid #333;
       padding: 8px 14px; backdrop-filter: blur(4px);
     }
-    #alpha-row label {
-      font-size: 11px; letter-spacing: 0.08em; color: #888;
-      white-space: nowrap;
-    }
+    #alpha-row label { font-size: 11px; letter-spacing: 0.08em; color: #888; white-space: nowrap; }
     #alpha-slider {
-      flex: 1;
-      -webkit-appearance: none; appearance: none;
-      height: 3px; background: #444; border-radius: 2px; outline: none;
-      cursor: pointer;
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 3px; background: #444; border-radius: 2px; outline: none; cursor: pointer;
     }
     #alpha-slider::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 14px; height: 14px; border-radius: 50%;
-      background: #ccc; cursor: pointer;
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: #ccc; cursor: pointer;
     }
     #alpha-slider::-moz-range-thumb {
       width: 14px; height: 14px; border-radius: 50%;
       background: #ccc; cursor: pointer; border: none;
     }
-    #alpha-value {
-      font-size: 11px; color: #666; width: 28px; text-align: right;
-    }
+    #alpha-value { font-size: 11px; color: #666; width: 28px; text-align: right; }
 
-    /* Matcap swatch bar */
     #matcap-bar {
       display: flex; gap: 10px; align-items: center;
       background: rgba(20,20,20,0.75); border: 1px solid #333;
@@ -94,29 +101,29 @@
   <div id="canvas-container"></div>
   <div id="waiting">WAITING FOR MODEL</div>
 
-  <!-- Right panel -->
+  <!-- Right panel: mesh toggles, status, download -->
   <div id="ui">
+    <button id="btn-shell"    >SHELL</button>
+    <button id="btn-crumple"  >CRUMPLE</button>
+    <button id="btn-headform" >HEADFORM</button>
+    <button id="btn-head"     >HEAD</button>
     <div id="status">DISCONNECTED</div>
-    <button id="headform-toggle" type="button" disabled>HIDE HEADFORM</button>
-    <button id="dl-btn" disabled>DOWNLOAD OBJ</button>
+    <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
-  <!-- Left panel -->
+  <!-- Left panel: curves -->
   <div id="ui-left">
-    <button id="shell-toggle" type="button" disabled>HIDE SHELL</button>
-    <button id="curves-toggle" type="button" disabled>SHOW CURVES</button>
+    <button id="curves-toggle">CURVES</button>
   </div>
 
-  <!-- Bottom centre: alpha slider above matcap swatches -->
+  <!-- Bottom centre -->
   <div id="bottom-centre">
     <div id="alpha-row">
       <label>ALPHA</label>
       <input id="alpha-slider" type="range" min="0" max="100" value="100">
       <span id="alpha-value">1.0</span>
     </div>
-    <div id="matcap-bar">
-      <!-- swatches injected by JS -->
-    </div>
+    <div id="matcap-bar"></div>
   </div>
 
   <script type="importmap">
@@ -133,7 +140,7 @@
     import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    // ─── Matcap list ──────────────────────────────────────────────────────────
+    // ─── Config ───────────────────────────────────────────────────────────────
     const MATCAPS = [
       'BaseMatCap_102.png',
       'BaseMatCap_106.png',
@@ -142,19 +149,24 @@
       'BaseMatCap_112.png',
       'BaseMatCap_115.png',
     ];
-    const DEFAULT_MATCAP  = 0;
-    const HEADFORM_MATCAP = 'BaseMatCap_102.png';
-    const VIEWER_BACKGROUND = '/images/RadialGray.jpg';
+    const DEFAULT_MATCAP = 0;
+
+    // Fixed matcaps for non-shell targets (indices into MATCAPS array)
+    const MATCAP_CRUMPLE  = 'BaseMatCap_111.png';
+    const MATCAP_HEADFORM = 'BaseMatCap_110.png';
+    const MATCAP_HEAD     = 'BaseMatCap_102.png';
+
+    const HEAD_DEFAULT_URL = '/mesh/AngularHead.obj';
     // ─────────────────────────────────────────────────────────────────────────
 
-    // --- Scene Setup ---
+    // --- Scene ---
     const container = document.getElementById('canvas-container');
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer  = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);
 
-    const scene = new THREE.Scene();
+    const scene  = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a1a);
 
     const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 2000);
@@ -177,37 +189,34 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // --- Materials ---
+    // --- Texture loader ---
     const texLoader = new THREE.TextureLoader();
-    texLoader.load(VIEWER_BACKGROUND, tex => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      scene.background = tex;
+
+    // --- Materials ---
+    // Shell: swatch-controlled + alpha slider
+    const shellMaterial = new THREE.MeshMatcapMaterial({
+      side: THREE.DoubleSide, transparent: true, opacity: 1.0
     });
 
-    const headformMaterial = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
-    texLoader.load('/matcaps/' + HEADFORM_MATCAP, tex => {
-      headformMaterial.matcap = tex;
-      headformMaterial.needsUpdate = true;
-    });
-
-    // Shell material — transparent so alpha slider works
-    let activeMaterial = new THREE.MeshMatcapMaterial({
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 1.0
-    });
-
-    function applyMatcap(index) {
-      texLoader.load('/matcaps/' + MATCAPS[index], tex => {
-        activeMaterial.matcap = tex;
-        activeMaterial.needsUpdate = true;
-      });
-      document.querySelectorAll('.swatch').forEach((el, i) => {
-        el.classList.toggle('active', i === index);
-      });
+    function makeFixedMaterial(matcapName) {
+      const mat = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
+      texLoader.load('/matcaps/' + matcapName, tex => { mat.matcap = tex; mat.needsUpdate = true; });
+      return mat;
     }
 
-    // --- Swatch bar ---
+    const crumpleMaterial  = makeFixedMaterial(MATCAP_CRUMPLE);
+    const headformMaterial = makeFixedMaterial(MATCAP_HEADFORM);
+    const headMaterial     = makeFixedMaterial(MATCAP_HEAD);
+
+    // --- Swatch bar (controls shell only) ---
+    function applyMatcap(index) {
+      texLoader.load('/matcaps/' + MATCAPS[index], tex => {
+        shellMaterial.matcap = tex; shellMaterial.needsUpdate = true;
+      });
+      document.querySelectorAll('.swatch').forEach((el, i) =>
+        el.classList.toggle('active', i === index));
+    }
+
     const bar = document.getElementById('matcap-bar');
     MATCAPS.forEach((name, i) => {
       const div = document.createElement('div');
@@ -219,96 +228,77 @@
     });
     applyMatcap(DEFAULT_MATCAP);
 
-    // --- Alpha slider ---
+    // --- Alpha slider (shell only) ---
     const alphaSlider = document.getElementById('alpha-slider');
     const alphaValue  = document.getElementById('alpha-value');
-
     alphaSlider.addEventListener('input', () => {
       const val = alphaSlider.value / 100;
-      activeMaterial.opacity = val;
-      activeMaterial.needsUpdate = true;
+      shellMaterial.opacity = val;
+      shellMaterial.needsUpdate = true;
       alphaValue.textContent = val.toFixed(2);
     });
 
-    // --- Mesh state ---
-    const HEADFORM_URL = '/mesh/headform.obj';
-    let headformRoot     = null;
-    let helmetRoot       = null;
-    let shellVisible     = true;
-    let currentObjString = null;
+    // ── Mesh target system ────────────────────────────────────────────────────
     const loader = new OBJLoader();
 
-    const headformBtn = document.getElementById('headform-toggle');
-    const shellBtn    = document.getElementById('shell-toggle');
-    const waitingEl   = document.getElementById('waiting');
+    // One config object per target — keeps all state together
+    const targets = {
+      shell:    { root: null, visible: true,  populated: false, btn: document.getElementById('btn-shell'),    material: shellMaterial,    objString: null },
+      crumple:  { root: null, visible: true,  populated: false, btn: document.getElementById('btn-crumple'),  material: crumpleMaterial,  objString: null },
+      headform: { root: null, visible: true,  populated: false, btn: document.getElementById('btn-headform'), material: headformMaterial, objString: null },
+      head:     { root: null, visible: true,  populated: false, btn: document.getElementById('btn-head'),     material: headMaterial,     objString: null },
+    };
 
-    function applyMaterialToMeshes(obj, material) {
-      obj.traverse(child => { if (child.isMesh) child.material = material; });
+    function syncButton(t) {
+      const btn = t.btn;
+      btn.classList.toggle('populated',   t.populated);
+      btn.classList.toggle('hidden-mesh', t.populated && !t.visible);
     }
 
-    // --- Headform toggle ---
-    function syncHeadformButton() {
-      if (!headformRoot) return;
-      headformBtn.disabled = false;
-      headformBtn.textContent = headformRoot.visible ? 'HIDE HEADFORM' : 'SHOW HEADFORM';
-    }
+    function loadMesh(key, objString) {
+      const t = targets[key];
+      if (t.root) scene.remove(t.root);
 
-    headformBtn.addEventListener('click', () => {
-      if (!headformRoot) return;
-      headformRoot.visible = !headformRoot.visible;
-      syncHeadformButton();
-    });
-
-    // --- Shell toggle ---
-    function syncShellButton() {
-      shellBtn.textContent = shellVisible ? 'HIDE SHELL' : 'SHOW SHELL';
-      if (helmetRoot) helmetRoot.visible = shellVisible;
-    }
-
-    shellBtn.addEventListener('click', () => {
-      shellVisible = !shellVisible;
-      syncShellButton();
-    });
-
-    // --- Load helmet mesh ---
-    function loadHelmet(objString) {
-      if (helmetRoot) scene.remove(helmetRoot);
       const obj = loader.parse(objString);
       obj.traverse(child => {
         if (child.isMesh) {
           child.geometry.computeVertexNormals();
-          child.material = activeMaterial;
+          child.material = t.material;
         }
       });
-      obj.visible = shellVisible;
+      obj.visible  = t.visible;
       scene.add(obj);
-      helmetRoot = obj;
-      currentObjString = objString;
-      document.getElementById('dl-btn').disabled = false;
-      shellBtn.disabled = false;
-      syncShellButton();
-      waitingEl.style.display = 'none';
+
+      t.root      = obj;
+      t.populated = true;
+      if (key === 'shell') t.objString = objString;
+
+      syncButton(t);
+
+      // Hide waiting message once any mesh arrives
+      document.getElementById('waiting').style.display = 'none';
     }
 
-    // --- Load headform ---
-    fetch(HEADFORM_URL)
-      .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then(text => {
-        headformRoot = loader.parse(text);
-        applyMaterialToMeshes(headformRoot, headformMaterial);
-        headformRoot.visible = true;
-        scene.add(headformRoot);
-        syncHeadformButton();
-        waitingEl.style.display = 'none';
-      })
-      .catch(() => {
-        waitingEl.textContent = 'HEADFORM LOAD FAILED (' + HEADFORM_URL + ')';
+    // Wire toggle buttons
+    Object.entries(targets).forEach(([key, t]) => {
+      t.btn.addEventListener('click', () => {
+        if (!t.populated) return;
+        t.visible = !t.visible;
+        if (t.root) t.root.visible = t.visible;
+        syncButton(t);
       });
+    });
 
-    // --- Download ---
-    document.getElementById('dl-btn').addEventListener('click', () => {
-      if (!currentObjString) return;
-      const blob = new Blob([currentObjString], { type: 'text/plain' });
+    // Initialise all buttons to unpopulated state
+    Object.values(targets).forEach(syncButton);
+
+    // --- Download (shell OBJ) ---
+    const dlBtn = document.getElementById('dl-btn');
+    dlBtn.classList.add('populated');   // always available as a button
+    dlBtn.addEventListener('click', () => {
+      const s = targets.shell.objString;
+      if (!s) return;
+      const blob = new Blob([s], { type: 'text/plain' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'helmet.obj';
@@ -316,67 +306,74 @@
       URL.revokeObjectURL(a.href);
     });
 
-    // ── Curves ───────────────────────────────────────────────────────────────
+    // --- Load default Head mesh from file ---
+    fetch(HEAD_DEFAULT_URL)
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(text => loadMesh('head', text))
+      .catch(err => console.warn('Head default load failed:', err));
+
+    // ── Curves ────────────────────────────────────────────────────────────────
     let curveGroup   = null;
     let curvesVisible = false;
-
-    const curvesBtn = document.getElementById('curves-toggle');
+    const curvesBtn  = document.getElementById('curves-toggle');
 
     function syncCurvesButton() {
-      curvesBtn.textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
+      curvesBtn.classList.toggle('populated',   curveGroup !== null);
+      curvesBtn.classList.toggle('hidden-mesh', curveGroup !== null && !curvesVisible);
       if (curveGroup) curveGroup.visible = curvesVisible;
     }
 
     curvesBtn.addEventListener('click', () => {
+      if (!curveGroup) return;
       curvesVisible = !curvesVisible;
       syncCurvesButton();
     });
+    syncCurvesButton();
 
     function loadCurves(data) {
       if (curveGroup) scene.remove(curveGroup);
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
-
       curves.forEach(curve => {
         const points   = curve.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
         const material = new THREE.LineBasicMaterial({ color: curve.color || 0xffffff });
         group.add(new THREE.Line(geometry, material));
       });
-
       group.visible = curvesVisible;
       scene.add(group);
       curveGroup = group;
-      curvesBtn.disabled = false;
       syncCurvesButton();
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---
     const statusEl = document.getElementById('status');
-    const proto  = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const WS_URL = `${proto}//${window.location.host}`;
+    const proto    = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL   = `${proto}//${window.location.host}`;
     let ws;
 
     function connect() {
       ws = new WebSocket(WS_URL);
       ws.onopen  = () => { statusEl.textContent = 'LIVE'; statusEl.style.color = '#8f8'; };
       ws.onclose = () => {
-        statusEl.textContent = 'RECONNECTING';
-        statusEl.style.color = '#fa0';
+        statusEl.textContent = 'RECONNECTING'; statusEl.style.color = '#fa0';
         setTimeout(connect, 2000);
       };
       ws.onerror = () => ws.close();
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'mesh')   loadHelmet(msg.data);
-        if (msg.type === 'curves') loadCurves(msg.data);
+        if (msg.type === 'shell')    loadMesh('shell',    msg.data);
+        if (msg.type === 'crumple')  loadMesh('crumple',  msg.data);
+        if (msg.type === 'headform') loadMesh('headform', msg.data);
+        if (msg.type === 'head')     loadMesh('head',     msg.data);
+        if (msg.type === 'curves')   loadCurves(msg.data);
       };
     }
 
     connect();
 
-    // --- Render Loop ---
+    // --- Render loop ---
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
