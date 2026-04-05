@@ -200,7 +200,12 @@
     function loadHelmet(objString) {
       if (helmetRoot) scene.remove(helmetRoot);
       const obj = loader.parse(objString);
-      applyMaterialToMeshes(obj, activeMaterial);
+      obj.traverse(child => {
+        if (child.isMesh) {
+          child.geometry.computeVertexNormals();  // smooth shading
+          child.material = activeMaterial;
+        }
+      });
       scene.add(obj);
       helmetRoot = obj;
       currentObjString = objString;
