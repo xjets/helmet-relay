@@ -100,9 +100,9 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a1a);  // fallback if background image fails
 
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
     // Start 180° around Y vs +Z so we face the front of the head (not the back).
-    camera.position.set(0, 0, -800);
+    camera.position.set(0, 0, -1000);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
