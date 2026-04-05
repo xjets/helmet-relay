@@ -15,7 +15,7 @@
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
     }
 
-    /* Left panel — curves toggle */
+    /* Left panel — shell + curves toggles */
     #ui-left {
       position: fixed; top: 16px; left: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
@@ -39,9 +39,43 @@
       pointer-events: none;
     }
 
+    /* Bottom centre — matcap bar + alpha slider stacked */
+    #bottom-centre {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+    }
+
+    /* Alpha slider row */
+    #alpha-row {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(20,20,20,0.75); border: 1px solid #333;
+      padding: 8px 14px; backdrop-filter: blur(4px);
+    }
+    #alpha-row label {
+      font-size: 11px; letter-spacing: 0.08em; color: #888;
+      white-space: nowrap;
+    }
+    #alpha-slider {
+      flex: 1;
+      -webkit-appearance: none; appearance: none;
+      height: 3px; background: #444; border-radius: 2px; outline: none;
+      cursor: pointer;
+    }
+    #alpha-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #ccc; cursor: pointer;
+    }
+    #alpha-slider::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #ccc; cursor: pointer; border: none;
+    }
+    #alpha-value {
+      font-size: 11px; color: #666; width: 28px; text-align: right;
+    }
+
     /* Matcap swatch bar */
     #matcap-bar {
-      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 10px; align-items: center;
       background: rgba(20,20,20,0.75); border: 1px solid #333;
       padding: 10px 14px; backdrop-filter: blur(4px);
@@ -69,11 +103,20 @@
 
   <!-- Left panel -->
   <div id="ui-left">
+    <button id="shell-toggle" type="button" disabled>HIDE SHELL</button>
     <button id="curves-toggle" type="button" disabled>SHOW CURVES</button>
   </div>
 
-  <div id="matcap-bar">
-    <!-- swatches injected by JS -->
+  <!-- Bottom centre: alpha slider above matcap swatches -->
+  <div id="bottom-centre">
+    <div id="alpha-row">
+      <label>ALPHA</label>
+      <input id="alpha-slider" type="range" min="0" max="100" value="100">
+      <span id="alpha-value">1.0</span>
+    </div>
+    <div id="matcap-bar">
+      <!-- swatches injected by JS -->
+    </div>
   </div>
 
   <script type="importmap">
@@ -147,7 +190,12 @@
       headformMaterial.needsUpdate = true;
     });
 
-    let activeMaterial = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide });
+    // Shell material — transparent so alpha slider works
+    let activeMaterial = new THREE.MeshMatcapMaterial({
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 1.0
+    });
 
     function applyMatcap(index) {
       texLoader.load('/matcaps/' + MATCAPS[index], tex => {
@@ -171,20 +219,34 @@
     });
     applyMatcap(DEFAULT_MATCAP);
 
-    // --- Mesh ---
+    // --- Alpha slider ---
+    const alphaSlider = document.getElementById('alpha-slider');
+    const alphaValue  = document.getElementById('alpha-value');
+
+    alphaSlider.addEventListener('input', () => {
+      const val = alphaSlider.value / 100;
+      activeMaterial.opacity = val;
+      activeMaterial.needsUpdate = true;
+      alphaValue.textContent = val.toFixed(2);
+    });
+
+    // --- Mesh state ---
     const HEADFORM_URL = '/mesh/headform.obj';
-    let headformRoot    = null;
-    let helmetRoot      = null;
+    let headformRoot     = null;
+    let helmetRoot       = null;
+    let shellVisible     = true;
     let currentObjString = null;
     const loader = new OBJLoader();
 
     const headformBtn = document.getElementById('headform-toggle');
+    const shellBtn    = document.getElementById('shell-toggle');
     const waitingEl   = document.getElementById('waiting');
 
     function applyMaterialToMeshes(obj, material) {
       obj.traverse(child => { if (child.isMesh) child.material = material; });
     }
 
+    // --- Headform toggle ---
     function syncHeadformButton() {
       if (!headformRoot) return;
       headformBtn.disabled = false;
@@ -197,22 +259,38 @@
       syncHeadformButton();
     });
 
+    // --- Shell toggle ---
+    function syncShellButton() {
+      shellBtn.textContent = shellVisible ? 'HIDE SHELL' : 'SHOW SHELL';
+      if (helmetRoot) helmetRoot.visible = shellVisible;
+    }
+
+    shellBtn.addEventListener('click', () => {
+      shellVisible = !shellVisible;
+      syncShellButton();
+    });
+
+    // --- Load helmet mesh ---
     function loadHelmet(objString) {
       if (helmetRoot) scene.remove(helmetRoot);
       const obj = loader.parse(objString);
       obj.traverse(child => {
         if (child.isMesh) {
-          child.geometry.computeVertexNormals();  // smooth shading
+          child.geometry.computeVertexNormals();
           child.material = activeMaterial;
         }
       });
+      obj.visible = shellVisible;
       scene.add(obj);
       helmetRoot = obj;
       currentObjString = objString;
       document.getElementById('dl-btn').disabled = false;
+      shellBtn.disabled = false;
+      syncShellButton();
       waitingEl.style.display = 'none';
     }
 
+    // --- Load headform ---
     fetch(HEADFORM_URL)
       .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(text => {
@@ -239,8 +317,8 @@
     });
 
     // ── Curves ───────────────────────────────────────────────────────────────
-    let curveGroup  = null;   // THREE.Group holding all Line objects
-    let curvesVisible = false; // start hidden
+    let curveGroup   = null;
+    let curvesVisible = false;
 
     const curvesBtn = document.getElementById('curves-toggle');
 
@@ -255,27 +333,20 @@
     });
 
     function loadCurves(data) {
-      // Remove previous curve group
       if (curveGroup) scene.remove(curveGroup);
-
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
 
       curves.forEach(curve => {
         const points   = curve.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({
-          color: curve.color || 0xffffff,
-          linewidth: 1   // >1 only works on some GPUs
-        });
+        const material = new THREE.LineBasicMaterial({ color: curve.color || 0xffffff });
         group.add(new THREE.Line(geometry, material));
       });
 
       group.visible = curvesVisible;
       scene.add(group);
       curveGroup = group;
-
-      // Enable button once curves arrive
       curvesBtn.disabled = false;
       syncCurvesButton();
     }
