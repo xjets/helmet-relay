@@ -5,8 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Helmet Viewer</title>
   <style>
+    @font-face {
+      font-family: 'MainframeCyrillic';
+      src: url('/fonts/MainframeCyrillic.woff2') format('woff2'),
+           url('/fonts/MainframeCyrillic.woff')  format('woff'),
+           url('/fonts/MainframeCyrillic.ttf')   format('truetype');
+      font-weight: normal; font-style: normal;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1a1a1a; color: #ccc; font-family: monospace; overflow: hidden; }
+    body { background: #1a1a1a; color: #ccc; font-family: 'MainframeCyrillic', monospace; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; }
 
     /* Right panel — mesh toggles + status + download */
@@ -63,11 +71,18 @@
     button.populated.hidden-mesh .dot { background: #c8b870; }
     button.populated.hidden-mesh:hover { border-color: #8a7a40; }
 
-    /* Left-side buttons (curves, download) — no dot, centred text */
-    #ui-left button {
-      display: block; text-align: center;
+    /* Left-side buttons share min-width */
+    #ui-left button { min-width: 130px; }
+
+    /* Download — no dot, centred */
+    #dl-btn { justify-content: center; }
+
+    /* Curves — has dot, uses same green/yellow as right buttons
+       but yellow is 10% more faded than mesh buttons */
+    #curves-toggle.populated.hidden-mesh {
+      color: #a8924e; border-color: #423816; background: #1a1608; cursor: pointer;
     }
-    #curves-toggle { min-width: 130px; }
+    #curves-toggle.populated.hidden-mesh .dot { background: #a8924e; }
 
     #waiting {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -131,7 +146,7 @@
 
   <!-- Left panel: curves + download -->
   <div id="ui-left">
-    <button id="curves-toggle">SHOW CURVES</button>
+    <button id="curves-toggle"><span class="dot"></span><span class="label">SHOW CURVES</span></button>
     <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
@@ -139,8 +154,8 @@
   <div id="bottom-centre">
     <div id="alpha-row">
       <label>ALPHA</label>
-      <input id="alpha-slider" type="range" min="0" max="100" value="100">
-      <span id="alpha-value">1.0</span>
+      <input id="alpha-slider" type="range" min="25" max="100" value="100">
+      <span id="alpha-value">1.00</span>
     </div>
     <div id="matcap-bar"></div>
   </div>
@@ -251,7 +266,7 @@
     const alphaSlider = document.getElementById('alpha-slider');
     const alphaValue  = document.getElementById('alpha-value');
     alphaSlider.addEventListener('input', () => {
-      const val = alphaSlider.value / 100;
+      const val = alphaSlider.value / 100;   // min=25 → 0.25, max=100 → 1.00
       shellMaterial.opacity = val;
       shellMaterial.needsUpdate = true;
       alphaValue.textContent = val.toFixed(2);
@@ -339,7 +354,7 @@
     function syncCurvesButton() {
       curvesBtn.classList.toggle('populated',   curveGroup !== null);
       curvesBtn.classList.toggle('hidden-mesh', curveGroup !== null && !curvesVisible);
-      curvesBtn.textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
+      curvesBtn.querySelector('.label').textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
       if (curveGroup) curveGroup.visible = curvesVisible;
     }
 
