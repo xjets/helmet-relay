@@ -10,6 +10,7 @@ const wss = new WebSocketServer({ server });
 app.use(cors());
 app.use(express.text({ type: '*/*', limit: '50mb' }));
 app.use('/matcaps', express.static(__dirname + '/matcaps'));
+app.use('/mesh', express.static(__dirname + '/mesh'));
 
 let currentMesh = null;
 

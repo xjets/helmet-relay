@@ -54,6 +54,7 @@
 
   <div id="ui">
     <div id="status">DISCONNECTED</div>
+    <button id="headform-toggle" type="button" disabled>HIDE HEADFORM</button>
     <button id="dl-btn" disabled>DOWNLOAD OBJ</button>
   </div>
 
@@ -149,38 +150,60 @@
     // Load default matcap
     applyMatcap(DEFAULT_MATCAP);
 
-    // --- Mesh Management ---
-    let currentObj = null;
+    // --- Mesh Management (file coords preserved: origin 0,0,0, no scale) ---
+    const HEADFORM_URL = '/mesh/headform.obj';
+    let headformRoot = null;
+    let helmetRoot = null;
     let currentObjString = null;
     const loader = new OBJLoader();
 
-    function loadOBJ(objString) {
-      if (currentObj) scene.remove(currentObj);
-      const obj = loader.parse(objString);
+    const headformBtn = document.getElementById('headform-toggle');
+    const waitingEl = document.getElementById('waiting');
+
+    function applyMatcapToObject3D(obj) {
       obj.traverse(child => {
         if (child.isMesh) child.material = activeMaterial;
       });
+    }
 
-      // Auto-center and fit camera
-      const box = new THREE.Box3().setFromObject(obj);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z);
+    function syncHeadformButton() {
+      if (!headformRoot) return;
+      headformBtn.disabled = false;
+      headformBtn.textContent = headformRoot.visible ? 'HIDE HEADFORM' : 'SHOW HEADFORM';
+    }
 
-      obj.position.sub(center);
-      grid.position.y = -size.y / 2;
+    headformBtn.addEventListener('click', () => {
+      if (!headformRoot) return;
+      headformRoot.visible = !headformRoot.visible;
+      syncHeadformButton();
+    });
 
-      const fov = camera.fov * (Math.PI / 180);
-      camera.position.set(0, 0, (maxDim / 2) / Math.tan(fov / 2) * 1.5);
-      controls.reset();
-
+    function loadHelmet(objString) {
+      if (helmetRoot) scene.remove(helmetRoot);
+      const obj = loader.parse(objString);
+      applyMatcapToObject3D(obj);
       scene.add(obj);
-      currentObj = obj;
+      helmetRoot = obj;
       currentObjString = objString;
-
-      document.getElementById('waiting').style.display = 'none';
       document.getElementById('dl-btn').disabled = false;
     }
+
+    fetch(HEADFORM_URL)
+      .then(r => {
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return r.text();
+      })
+      .then(text => {
+        headformRoot = loader.parse(text);
+        applyMatcapToObject3D(headformRoot);
+        headformRoot.visible = true;
+        scene.add(headformRoot);
+        syncHeadformButton();
+        waitingEl.style.display = 'none';
+      })
+      .catch(() => {
+        waitingEl.textContent = 'HEADFORM LOAD FAILED (' + HEADFORM_URL + ')';
+      });
 
     // --- Download ---
     document.getElementById('dl-btn').addEventListener('click', () => {
@@ -210,7 +233,7 @@
       ws.onerror = () => ws.close();
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'mesh') loadOBJ(msg.data);
+        if (msg.type === 'mesh') loadHelmet(msg.data);
       };
     }
 
