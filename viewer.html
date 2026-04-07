@@ -157,6 +157,35 @@
       #matcap-bar { flex-wrap: wrap; }
       #hamburger  { right: auto; left: 16px; }
     }
+
+    /* ── Welcome overlay ───────────────────────────────────────────────────── */
+    #welcome-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #welcome-box {
+      background: #000; border: 1px solid #444; border-radius: 12px;
+      padding: 36px 40px;
+      display: flex; flex-direction: column; gap: 18px;
+      overflow-y: auto;
+      /* PC default */
+      width: 500px; max-height: 600px;
+      cursor: default;
+    }
+    #welcome-box p { font-size: 13px; line-height: 1.65; color: #bbb; letter-spacing: 0.04em; }
+    .w-hi { color: #8fc8a0; }
+    #welcome-hint { font-size: 10px; color: #555; letter-spacing: 0.08em; text-align: center; margin-top: 8px; }
+
+    /* Portrait mobile */
+    @media (orientation: portrait) and (max-width: 768px) {
+      #welcome-box { width: 60vw; max-height: 50vh; }
+    }
+    /* Landscape mobile */
+    @media (orientation: landscape) and (max-height: 500px) {
+      #welcome-box { width: 33vw; max-height: 70vh; }
+    }
   </style>
 </head>
 <body>
@@ -185,6 +214,16 @@
   <button id="hamburger" title="Toggle panels">
     <span class="bar"></span><span class="bar"></span><span class="bar"></span>
   </button>
+
+  <!-- Welcome overlay -->
+  <div id="welcome-overlay">
+    <div id="welcome-box">
+      <p>Welcome <span class="w-hi" id="w-username">—</span> to the HST Live Session Monitor Version 0.01</p>
+      <p>This online app accompanies the HST video session and provides you with live viewing of the helmet geometry on your device.</p>
+      <p>Thanks for <span class="w-hi" id="w-company">—</span>'s participation in the future of helmet design. All feedback is appreciated.</p>
+      <div id="welcome-hint">click anywhere to continue</div>
+    </div>
+  </div>
 
   <!-- Bottom centre -->
   <div id="bottom-centre">
@@ -492,63 +531,21 @@
       syncCurveSetBtn(s);
     });
 
-    // Build a LineMaterial with per-vertex depth-cued transparency injected via
-    // onBeforeCompile. Line2's vertex shader exposes instanceStart/instanceEnd
-    // and uses position.y < 0.5 to select which end of each segment we're on —
-    // we use that to compute the correct world-space depth at each vertex.
-    function makeCurveLineMaterial(color, res) {
-      const camDirUniform = { value: new THREE.Vector3(0, 0, -1) };
-      const mat = new LineMaterial({
-        color:       new THREE.Color(color),
-        linewidth:   3,
-        resolution:  res,
-        transparent: true,
-        depthWrite:  false,
-      });
-      mat._camDirUniform = camDirUniform;
-      mat.onBeforeCompile = shader => {
-        shader.uniforms.u_camDir    = camDirUniform;
-        shader.uniforms.u_depthNear = { value: DEPTH_NEAR };
-        shader.uniforms.u_depthFar  = { value: DEPTH_FAR };
-        // Vertex — declare uniform + varying, compute depth per endpoint
-        shader.vertexShader = shader.vertexShader.replace(
-          'void main() {',
-          `uniform vec3 u_camDir;
-varying float vDepthCue;
-void main() {`
-        );
-        shader.vertexShader = shader.vertexShader.replace(
-          '#include <color_vertex>',
-          `#include <color_vertex>
-{
-  vec3 _wS = (modelMatrix * vec4(instanceStart, 1.0)).xyz;
-  vec3 _wE = (modelMatrix * vec4(instanceEnd,   1.0)).xyz;
-  vDepthCue = (position.y < 0.5) ? dot(_wS, u_camDir) : dot(_wE, u_camDir);
-}`
-        );
-        // Fragment — apply depth-cued alpha
-        shader.fragmentShader = shader.fragmentShader.replace(
-          'void main() {',
-          `uniform float u_depthNear;
-uniform float u_depthFar;
-varying float vDepthCue;
-void main() {`
-        );
-        shader.fragmentShader = shader.fragmentShader.replace(
-          'gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a );',
-          `float _t = clamp((vDepthCue - u_depthFar) / (u_depthNear - u_depthFar), 0.0, 1.0);
-gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a * _t );`
-        );
-      };
-      mat.customProgramCacheKey = () => 'depth-cue-line';
-      return mat;
-    }
+    // Depth cueing: each curve is split into short chunks; each chunk gets its
+    // own LineMaterial whose opacity is set to the average depth of its points.
+    // Chunks of ~10 points span a small arc so the average is locally accurate.
+    const CHUNK_SIZE = 10;   // points per chunk (overlapping by 1 at joins)
 
-    // Push updated camera direction into every curve material
     function updateAllCurveColors() {
       const camDir = camera.position.clone().normalize();
       Object.values(curveSets).forEach(s => {
-        s.lineData.forEach(({ mat }) => mat._camDirUniform.value.copy(camDir));
+        s.lineData.forEach(({ mat, points }) => {
+          let sum = 0;
+          points.forEach(p => { sum += p[0]*camDir.x + p[1]*camDir.y + p[2]*camDir.z; });
+          const t = Math.max(0, Math.min(1,
+            (sum / points.length - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
+          mat.opacity = t;
+        });
       });
     }
 
@@ -561,15 +558,30 @@ gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a * _t );`
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
       const res    = new THREE.Vector2(window.innerWidth, window.innerHeight);
+
       curves.forEach(curve => {
-        const geo = new LineGeometry();
-        geo.setPositions(curve.points.flat());
-        const mat = makeCurveLineMaterial(curve.color || 0xffffff, res);
-        const line = new Line2(geo, mat);
-        line.computeLineDistances();
-        group.add(line);
-        s.lineData.push({ geo, mat, points: curve.points });
+        const pts  = curve.points;
+        const step = CHUNK_SIZE - 1;          // overlap by 1 point at each join
+        for (let i = 0; i < pts.length - 1; i += step) {
+          const chunk = pts.slice(i, Math.min(i + CHUNK_SIZE, pts.length));
+          if (chunk.length < 2) continue;
+          const geo = new LineGeometry();
+          geo.setPositions(chunk.flat());
+          const mat = new LineMaterial({
+            color:       new THREE.Color(curve.color || 0xffffff),
+            linewidth:   3,
+            resolution:  res,
+            transparent: true,
+            depthWrite:  false,
+            opacity:     1.0,
+          });
+          const line = new Line2(geo, mat);
+          line.computeLineDistances();
+          group.add(line);
+          s.lineData.push({ mat, points: chunk });
+        }
       });
+
       group.visible = s.visible;
       scene.add(group);
       s.group = group;
@@ -607,6 +619,22 @@ gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a * _t );`
     setTimeout(positionHamburger, 100); // after first layout
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Welcome screen ────────────────────────────────────────────────────────
+    const welcomeOverlay = document.getElementById('welcome-overlay');
+    const wUsername      = document.getElementById('w-username');
+    const wCompany       = document.getElementById('w-company');
+
+    function showSessionInfo(data) {
+      const info = typeof data === 'string' ? JSON.parse(data) : data;
+      if (info.userName) wUsername.textContent = info.userName;
+      if (info.company)  wCompany.textContent  = info.company;
+    }
+
+    welcomeOverlay.addEventListener('click', () => {
+      welcomeOverlay.style.display = 'none';
+    });
+    // ─────────────────────────────────────────────────────────────────────────
+
     // --- WebSocket ---
     const statusText  = document.getElementById('status-text');
     const statusInner = document.getElementById('status-inner');
@@ -635,6 +663,7 @@ gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a * _t );`
         if (msg.type === 'head')     loadMesh('head',     msg.data);
         if (msg.type === 'curves')         loadCurveSet('profile',     msg.data);
         if (msg.type === 'crumple-curves') loadCurveSet('crumpleCrvs', msg.data);
+        if (msg.type === 'session-info')   showSessionInfo(msg.data);
       };
     }
 
