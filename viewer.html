@@ -15,10 +15,16 @@
     body { background: #1a1a1a; color: #ccc; font-family: 'MainframeCyrillic', monospace; overflow: hidden; }
     #canvas-container { width: 100vw; height: 100vh; }
 
-    /* Right panel — mesh toggles + status + download */
+    /* Right panel — mesh toggles */
     #ui {
       position: fixed; top: 16px; right: 16px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+    }
+
+    /* Top-centre status indicator */
+    #status {
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      z-index: 10;
     }
 
     /* Left panel — curves toggle */
@@ -27,7 +33,7 @@
       display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
     }
 
-    #status {
+    #status-inner {
       display: flex; align-items: center; gap: 6px;
       background: #222; border: 1px solid #444;
       padding: 6px 10px; font-size: 11px; letter-spacing: 0.05em;
@@ -133,9 +139,11 @@
   <div id="canvas-container"></div>
   <div id="waiting">WAITING FOR MODEL</div>
 
-  <!-- Right panel: status + mesh toggles -->
+  <!-- Top centre: connection status -->
+  <div id="status"><div id="status-inner"><span id="status-dot"></span><span id="status-text">STANDBY</span></div></div>
+
+  <!-- Right panel: mesh toggles -->
   <div id="ui">
-    <div id="status"><span id="status-dot"></span><span id="status-text">DISCONNECTED</span></div>
     <button id="btn-shell"   ><span class="dot"></span><span class="label">SHELL</span></button>
     <button id="btn-crumple" ><span class="dot"></span><span class="label">CRUMPLE</span></button>
     <button id="btn-headform"><span class="dot"></span><span class="label">HEADFORM</span></button>
@@ -499,23 +507,22 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---
-    const statusText = document.getElementById('status-text');
-    const statusDot  = document.getElementById('status-dot');
-    const statusEl   = document.getElementById('status');
-    const proto      = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const WS_URL     = `${proto}//${window.location.host}`;
+    const statusText  = document.getElementById('status-text');
+    const statusInner = document.getElementById('status-inner');
+    const proto       = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL      = `${proto}//${window.location.host}`;
     let ws;
 
     function setStatus(text, color) {
-      statusText.textContent = text;
-      statusEl.style.color   = color;
+      statusText.textContent    = text;
+      statusInner.style.color   = color;
     }
 
     function connect() {
       ws = new WebSocket(WS_URL);
       ws.onopen  = () => setStatus('LIVE', '#8f8');
       ws.onclose = () => {
-        setStatus('RECONNECTING', '#fa0');
+        setStatus('CONNECTING', '#fa0');
         setTimeout(connect, 2000);
       };
       ws.onerror = () => ws.close();
