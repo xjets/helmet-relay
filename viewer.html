@@ -183,10 +183,8 @@
     ];
     const DEFAULT_MATCAP = 0;
 
-    // Fixed matcaps for non-shell targets (indices into MATCAPS array)
-    const MATCAP_CRUMPLE  = 'BaseMatCap_111.png';
-    const MATCAP_HEADFORM = 'BaseMatCap_110.png';
-    const MATCAP_HEAD     = 'BaseMatCap_102.png';
+    // Fixed matcap for head target
+    const MATCAP_HEAD = 'BaseMatCap_102.png';
 
     const HEAD_DEFAULT_URL = '/mesh/AngularHead.obj';
     // ─────────────────────────────────────────────────────────────────────────
@@ -236,9 +234,73 @@
       return mat;
     }
 
-    const crumpleMaterial  = makeFixedMaterial(MATCAP_CRUMPLE);
-    const headformMaterial = makeFixedMaterial(MATCAP_HEADFORM);
-    const headMaterial     = makeFixedMaterial(MATCAP_HEAD);
+    // Crumple — fixed lime green
+    const crumpleMaterial = new THREE.MeshPhongMaterial({
+      color: 0x80FF00, shininess: 40, side: THREE.DoubleSide
+    });
+
+    // Headform — diagonal stripe shader
+    const headformMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      side: THREE.DoubleSide,
+      uniforms: {
+        col_a:            { value: new THREE.Vector3(0.733, 0.870, 0.566) },
+        col_a_alpha:      { value: 0.6 },
+        col_b:            { value: new THREE.Vector3(0.351, 0.650, 0.500) },
+        col_b_alpha:      { value: 0.68 },
+        col_border:       { value: new THREE.Vector3(0.0, 0.0, 0.0) },
+        col_border_alpha: { value: 1.0 },
+        stripe_width:     { value: 8.0 },
+        rotation:         { value: -45.0 },
+      },
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorldPos;
+        uniform vec3  col_a;
+        uniform float col_a_alpha;
+        uniform vec3  col_b;
+        uniform float col_b_alpha;
+        uniform vec3  col_border;
+        uniform float col_border_alpha;
+        uniform float stripe_width;
+        uniform float rotation;
+
+        void main() {
+          float angle = rotation * 3.14159265359 / 180.0;
+          // Project world position onto rotated axis
+          float proj = vWorldPos.x * cos(angle) + vWorldPos.y * sin(angle);
+
+          // Alternating A/B bands of equal width
+          float t = mod(proj / stripe_width, 2.0);
+          if (t < 0.0) t += 2.0;
+          bool in_a = t < 1.0;
+
+          // Distance from nearest stripe edge (world units)
+          float edge_dist = mod(proj / stripe_width, 1.0);
+          float dist_to_edge = min(edge_dist, 1.0 - edge_dist) * stripe_width;
+
+          // Hairline anti-aliased border — adapts to screen resolution
+          float fw = max(fwidth(proj) * 0.5, 0.25);
+          float border_mix = smoothstep(0.0, fw, dist_to_edge);
+
+          vec3  col   = in_a ? col_a   : col_b;
+          float alpha = in_a ? col_a_alpha : col_b_alpha;
+
+          col   = mix(col_border,       col,   border_mix);
+          alpha = mix(col_border_alpha, alpha, border_mix);
+
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+    });
+
+    const headMaterial = makeFixedMaterial(MATCAP_HEAD);
 
     // --- Swatch bar (controls shell only) ---
     function applyMatcap(index) {
