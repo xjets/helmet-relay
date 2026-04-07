@@ -212,6 +212,7 @@
     import { Line2 } from 'three/addons/lines/Line2.js';
     import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
     import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+    import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
     // ─── Config ───────────────────────────────────────────────────────────────
     const MATCAPS = [
@@ -408,6 +409,8 @@
       const obj = loader.parse(objString);
       obj.traverse(child => {
         if (child.isMesh) {
+          // Merge coincident vertices so normals average across faces → smooth shading
+          child.geometry = mergeVertices(child.geometry);
           child.geometry.computeVertexNormals();
           child.material = t.material;
           // Crumple: overlay black edge lines as children (inherit visibility)
