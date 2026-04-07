@@ -133,6 +133,30 @@
     }
     .swatch:hover { transform: scale(1.12); border-color: #888; }
     .swatch.active { border-color: #fff; }
+
+    /* Hamburger — desktop: lower-right */
+    #hamburger {
+      position: fixed; bottom: 20px; right: 16px; z-index: 20;
+      background: #1e1e1e; border: 1px solid #2a2a2a; color: #555;
+      padding: 10px 12px; cursor: pointer;
+      display: flex; flex-direction: column; gap: 4px;
+      min-width: auto; transition: color 0.2s, border-color 0.2s;
+    }
+    #hamburger .bar {
+      display: block; width: 18px; height: 2px;
+      background: currentColor; border-radius: 1px;
+    }
+    #hamburger:hover { color: #888; border-color: #444; }
+    #hamburger.panels-hidden { color: #444; border-color: #222; }
+
+    /* Mobile portrait — full-width bottom bar, hamburger lower-left */
+    @media (orientation: portrait) {
+      #bottom-centre {
+        left: 16px; right: 16px; transform: none;
+      }
+      #matcap-bar { flex-wrap: wrap; }
+      #hamburger  { right: auto; left: 16px; }
+    }
   </style>
 </head>
 <body>
@@ -156,6 +180,11 @@
     <button id="crumple-crvs-toggle"><span class="dot"></span><span class="label">SHOW CRUMPLE CRVS</span></button>
     <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
+
+  <!-- Hamburger toggle — panels (surfaces + curves) -->
+  <button id="hamburger" title="Toggle panels">
+    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+  </button>
 
   <!-- Bottom centre -->
   <div id="bottom-centre">
@@ -435,9 +464,8 @@
       .catch(err => console.warn('Head default load failed:', err));
 
     // ── Generic curve-set system ──────────────────────────────────────────────
-    const BG_COLOR   = new THREE.Color(0x1a1a1a);
-    const DEPTH_NEAR =  150;   // world units toward camera → full colour
-    const DEPTH_FAR  = -150;   // world units behind origin → background colour
+    const DEPTH_NEAR =  150;   // world units toward camera → fully opaque
+    const DEPTH_FAR  = -150;   // world units behind origin → fully transparent
 
     // Each set: { group, visible, lineData, btn, showLabel, hideLabel }
     const curveSets = {
@@ -464,18 +492,12 @@
     function updateCurveSetColors(s) {
       if (!s.lineData.length) return;
       const camDir = camera.position.clone().normalize();
-      s.lineData.forEach(({ geo, baseColor, points }) => {
-        const cols = [];
-        points.forEach(p => {
-          const depth = p[0]*camDir.x + p[1]*camDir.y + p[2]*camDir.z;
-          const t = Math.max(0, Math.min(1, (depth - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
-          cols.push(
-            BG_COLOR.r + (baseColor.r - BG_COLOR.r) * t,
-            BG_COLOR.g + (baseColor.g - BG_COLOR.g) * t,
-            BG_COLOR.b + (baseColor.b - BG_COLOR.b) * t,
-          );
-        });
-        geo.setColors(cols);
+      s.lineData.forEach(({ mat, points }) => {
+        // Average depth of all points → single opacity per curve
+        let sum = 0;
+        points.forEach(p => { sum += p[0]*camDir.x + p[1]*camDir.y + p[2]*camDir.z; });
+        const t = Math.max(0, Math.min(1, (sum / points.length - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
+        mat.opacity = t;
       });
     }
 
@@ -495,11 +517,17 @@
       curves.forEach(curve => {
         const geo = new LineGeometry();
         geo.setPositions(curve.points.flat());
-        const mat = new LineMaterial({ linewidth: 3, resolution: res, vertexColors: true });
+        const mat = new LineMaterial({
+          color:       new THREE.Color(curve.color || 0xffffff),
+          linewidth:   3,
+          resolution:  res,
+          transparent: true,
+          opacity:     1.0,
+        });
         const line = new Line2(geo, mat);
         line.computeLineDistances();
         group.add(line);
-        s.lineData.push({ geo, baseColor: new THREE.Color(curve.color || 0xffffff), points: curve.points });
+        s.lineData.push({ geo, mat, points: curve.points });
       });
       group.visible = s.visible;
       scene.add(group);
@@ -507,6 +535,32 @@
       syncCurveSetBtn(s);
       updateCurveSetColors(s);
     }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Hamburger — toggle surface + curve panels ─────────────────────────────
+    const hamburgerEl   = document.getElementById('hamburger');
+    const uiRight       = document.getElementById('ui');
+    const uiLeftEl      = document.getElementById('ui-left');
+    const bottomCentreEl = document.getElementById('bottom-centre');
+    let panelsVisible = true;
+
+    hamburgerEl.addEventListener('click', () => {
+      panelsVisible = !panelsVisible;
+      uiRight.style.display  = panelsVisible ? 'flex' : 'none';
+      uiLeftEl.style.display = panelsVisible ? 'flex' : 'none';
+      hamburgerEl.classList.toggle('panels-hidden', !panelsVisible);
+    });
+
+    // On portrait, position hamburger just above the bottom-centre bar
+    function positionHamburger() {
+      if (window.innerHeight > window.innerWidth) {
+        hamburgerEl.style.bottom = (bottomCentreEl.offsetHeight + 32) + 'px';
+      } else {
+        hamburgerEl.style.bottom = '20px';
+      }
+    }
+    window.addEventListener('resize', positionHamburger);
+    setTimeout(positionHamburger, 100); // after first layout
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---
