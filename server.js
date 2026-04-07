@@ -13,6 +13,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/matcaps', express.static(__dirname + '/matcaps'));
 app.use('/mesh',    express.static(__dirname + '/mesh'));
 app.use('/fonts',   express.static(__dirname + '/fonts'));
+app.use('/images',  express.static(__dirname + '/images'));
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentShell         = null;

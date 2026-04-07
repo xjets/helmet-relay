@@ -209,7 +209,10 @@
     container.appendChild(renderer.domElement);
 
     const scene  = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a1a);
+    scene.background = new THREE.Color(0x1a1a1a); // placeholder until texture loads
+    new THREE.TextureLoader().load('/images/RadialGray.jpg', tex => {
+      scene.background = tex;
+    });
 
     const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(0, 0, -1000);
