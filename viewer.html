@@ -220,7 +220,7 @@
     <div id="welcome-box">
       <p>Welcome <span class="w-hi" id="w-username">—</span> to the HST Live Session Monitor Version 0.01</p>
       <p>This online app accompanies the HST video session and provides you with live viewing of the helmet geometry on your device.</p>
-      <p>Thanks for <span class="w-hi" id="w-company">—</span>'s participation in the future of helmet design. All feedback is appreciated.</p>
+      <p id="w-company-para">Thanks for your participation in the future of helmet design. All feedback is appreciated.</p>
       <div id="welcome-hint">click anywhere to continue</div>
     </div>
   </div>
@@ -620,14 +620,18 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Welcome screen ────────────────────────────────────────────────────────
-    const welcomeOverlay = document.getElementById('welcome-overlay');
-    const wUsername      = document.getElementById('w-username');
-    const wCompany       = document.getElementById('w-company');
+    const welcomeOverlay  = document.getElementById('welcome-overlay');
+    const wUsername       = document.getElementById('w-username');
+    const wCompanyPara    = document.getElementById('w-company-para');
 
     function showSessionInfo(data) {
       const info = typeof data === 'string' ? JSON.parse(data) : data;
       if (info.userName) wUsername.textContent = info.userName;
-      if (info.company)  wCompany.textContent  = info.company;
+      if (info.company && info.company.trim()) {
+        wCompanyPara.innerHTML = `Thanks for <span class="w-hi">${info.company}</span>'s participation in the future of helmet design. All feedback is appreciated.`;
+      } else {
+        wCompanyPara.textContent = "Thanks for your participation in the future of helmet design. All feedback is appreciated.";
+      }
     }
 
     welcomeOverlay.addEventListener('click', () => {
