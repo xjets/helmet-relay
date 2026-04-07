@@ -171,6 +171,9 @@
     import * as THREE from 'three';
     import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { Line2 } from 'three/addons/lines/Line2.js';
+    import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+    import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
     // ─── Config ───────────────────────────────────────────────────────────────
     const MATCAPS = [
@@ -217,6 +220,12 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      // LineMaterial needs the current resolution to compute screen-space width
+      if (curveGroup) {
+        curveGroup.traverse(child => {
+          if (child.isLine2) child.material.resolution.set(window.innerWidth, window.innerHeight);
+        });
+      }
     });
 
     // --- Texture loader ---
@@ -436,11 +445,19 @@
       if (curveGroup) scene.remove(curveGroup);
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
+      const res    = new THREE.Vector2(window.innerWidth, window.innerHeight);
       curves.forEach(curve => {
-        const points   = curve.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({ color: curve.color || 0xffffff });
-        group.add(new THREE.Line(geometry, material));
+        const pts = curve.points.flat();          // flat [x,y,z, x,y,z, ...]
+        const geo = new LineGeometry();
+        geo.setPositions(pts);
+        const mat = new LineMaterial({
+          color:      curve.color || 0xffffff,
+          linewidth:  3,                          // screen pixels
+          resolution: res,
+        });
+        const line = new Line2(geo, mat);
+        line.computeLineDistances();
+        group.add(line);
       });
       group.visible = curvesVisible;
       scene.add(group);
