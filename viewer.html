@@ -274,7 +274,7 @@
         void main() {
           float angle = rotation * 3.14159265359 / 180.0;
           // Project world position onto rotated axis
-          float proj = vWorldPos.x * cos(angle) + vWorldPos.y * sin(angle);
+          float proj = vWorldPos.z * cos(angle) + vWorldPos.y * sin(angle);
 
           // Alternating A/B bands of equal width
           float t = mod(proj / stripe_width, 2.0);
