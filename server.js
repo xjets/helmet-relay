@@ -15,11 +15,12 @@ app.use('/mesh',    express.static(__dirname + '/mesh'));
 app.use('/fonts',   express.static(__dirname + '/fonts'));
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentShell    = null;
-let currentCrumple  = null;
-let currentHeadform = null;
-let currentHead     = null;
-let currentCurves   = null;
+let currentShell         = null;
+let currentCrumple       = null;
+let currentHeadform      = null;
+let currentHead          = null;
+let currentCurves        = null;
+let currentCrumpleCurves = null;
 // ─────────────────────────────────────────────────────────────────────────────
 
 function broadcast(payload) {
@@ -69,6 +70,14 @@ app.post('/upload-curves', (req, res) => {
   res.sendStatus(200);
 });
 
+// Crumple curves
+app.post('/upload-crumple-curves', (req, res) => {
+  currentCrumpleCurves = req.body;
+  broadcast({ type: 'crumple-curves', data: currentCrumpleCurves });
+  console.log(`Crumple curves pushed: ${JSON.stringify(currentCrumpleCurves).length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
 // Serve viewer
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/viewer.html');
@@ -81,7 +90,8 @@ wss.on('connection', ws => {
   if (currentCrumple)  ws.send(JSON.stringify({ type: 'crumple',  data: currentCrumple }));
   if (currentHeadform) ws.send(JSON.stringify({ type: 'headform', data: currentHeadform }));
   if (currentHead)     ws.send(JSON.stringify({ type: 'head',     data: currentHead }));
-  if (currentCurves)   ws.send(JSON.stringify({ type: 'curves',   data: currentCurves }));
+  if (currentCurves)        ws.send(JSON.stringify({ type: 'curves',         data: currentCurves }));
+  if (currentCrumpleCurves) ws.send(JSON.stringify({ type: 'crumple-curves', data: currentCrumpleCurves }));
   ws.on('close', () => console.log('Viewer disconnected'));
 });
 

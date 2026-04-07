@@ -144,7 +144,8 @@
 
   <!-- Left panel: curves + download -->
   <div id="ui-left">
-    <button id="curves-toggle"><span class="dot"></span><span class="label">SHOW CURVES</span></button>
+    <button id="curves-toggle"      ><span class="dot"></span><span class="label">SHOW CURVES</span></button>
+    <button id="crumple-crvs-toggle"><span class="dot"></span><span class="label">SHOW CRUMPLE CRVS</span></button>
     <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
@@ -220,12 +221,12 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
-      // LineMaterial needs the current resolution to compute screen-space width
-      if (curveGroup) {
-        curveGroup.traverse(child => {
+      // LineMaterial needs current resolution — update all curve sets
+      Object.values(curveSets).forEach(s => {
+        if (s.group) s.group.traverse(child => {
           if (child.isLine2) child.material.resolution.set(window.innerWidth, window.innerHeight);
         });
-      }
+      });
     });
 
     // --- Texture loader ---
@@ -422,39 +423,40 @@
       .then(text => loadMesh('head', text))
       .catch(err => console.warn('Head default load failed:', err));
 
-    // ── Curves ────────────────────────────────────────────────────────────────
-    let curveGroup   = null;
-    let curvesVisible = false;
-    const curvesBtn  = document.getElementById('curves-toggle');
+    // ── Generic curve-set system ──────────────────────────────────────────────
+    const BG_COLOR   = new THREE.Color(0x1a1a1a);
+    const DEPTH_NEAR =  150;   // world units toward camera → full colour
+    const DEPTH_FAR  = -150;   // world units behind origin → background colour
 
-    function syncCurvesButton() {
-      curvesBtn.classList.toggle('populated',   curveGroup !== null);
-      curvesBtn.classList.toggle('hidden-mesh', curveGroup !== null && !curvesVisible);
-      curvesBtn.querySelector('.label').textContent = curvesVisible ? 'HIDE CURVES' : 'SHOW CURVES';
-      if (curveGroup) curveGroup.visible = curvesVisible;
+    // Each set: { group, visible, lineData, btn, showLabel, hideLabel }
+    const curveSets = {
+      profile:     { group: null, visible: false, lineData: [], btn: document.getElementById('curves-toggle'),       showLabel: 'SHOW CURVES',        hideLabel: 'HIDE CURVES' },
+      crumpleCrvs: { group: null, visible: false, lineData: [], btn: document.getElementById('crumple-crvs-toggle'), showLabel: 'SHOW CRUMPLE CRVS',  hideLabel: 'HIDE CRUMPLE CRVS' },
+    };
+
+    function syncCurveSetBtn(s) {
+      s.btn.classList.toggle('populated',   s.group !== null);
+      s.btn.classList.toggle('hidden-mesh', s.group !== null && !s.visible);
+      s.btn.querySelector('.label').textContent = s.visible ? s.hideLabel : s.showLabel;
+      if (s.group) s.group.visible = s.visible;
     }
 
-    curvesBtn.addEventListener('click', () => {
-      if (!curveGroup) return;
-      curvesVisible = !curvesVisible;
-      syncCurvesButton();
+    Object.values(curveSets).forEach(s => {
+      s.btn.addEventListener('click', () => {
+        if (!s.group) return;
+        s.visible = !s.visible;
+        syncCurveSetBtn(s);
+      });
+      syncCurveSetBtn(s);
     });
-    syncCurvesButton();
 
-    // Curve depth-cue state — rebuilt on load, recoloured on camera move
-    let curveLineData = [];   // [{ geo, baseColor: THREE.Color, points: [[x,y,z],...] }]
-    const BG_COLOR = new THREE.Color(0x1a1a1a);
-    const DEPTH_NEAR =  150;  // world units toward camera  → full colour
-    const DEPTH_FAR  = -150;  // world units behind origin  → background colour
-
-    function updateCurveColors() {
-      if (!curveLineData.length) return;
-      const camDir = camera.position.clone().normalize(); // unit vec from origin → camera
-      curveLineData.forEach(({ geo, baseColor, points }) => {
+    function updateCurveSetColors(s) {
+      if (!s.lineData.length) return;
+      const camDir = camera.position.clone().normalize();
+      s.lineData.forEach(({ geo, baseColor, points }) => {
         const cols = [];
         points.forEach(p => {
-          // Signed depth along camera axis: positive = toward camera
-          const depth = p[0] * camDir.x + p[1] * camDir.y + p[2] * camDir.z;
+          const depth = p[0]*camDir.x + p[1]*camDir.y + p[2]*camDir.z;
           const t = Math.max(0, Math.min(1, (depth - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
           cols.push(
             BG_COLOR.r + (baseColor.r - BG_COLOR.r) * t,
@@ -466,40 +468,33 @@
       });
     }
 
-    // Recolour whenever the camera orbits
-    controls.addEventListener('change', updateCurveColors);
+    function updateAllCurveColors() {
+      Object.values(curveSets).forEach(updateCurveSetColors);
+    }
 
-    function loadCurves(data) {
-      if (curveGroup) scene.remove(curveGroup);
-      curveLineData = [];
+    controls.addEventListener('change', updateAllCurveColors);
+
+    function loadCurveSet(key, data) {
+      const s = curveSets[key];
+      if (s.group) scene.remove(s.group);
+      s.lineData = [];
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
       const res    = new THREE.Vector2(window.innerWidth, window.innerHeight);
       curves.forEach(curve => {
-        const pts = curve.points.flat();
         const geo = new LineGeometry();
-        geo.setPositions(pts);
-        // Vertex colours carry the depth-cued blend; base colour white so
-        // vertexColors drives the final output unmodified
-        const mat = new LineMaterial({
-          linewidth:    3,
-          resolution:   res,
-          vertexColors: true,
-        });
+        geo.setPositions(curve.points.flat());
+        const mat = new LineMaterial({ linewidth: 3, resolution: res, vertexColors: true });
         const line = new Line2(geo, mat);
         line.computeLineDistances();
         group.add(line);
-        curveLineData.push({
-          geo,
-          baseColor: new THREE.Color(curve.color || 0xffffff),
-          points:    curve.points,
-        });
+        s.lineData.push({ geo, baseColor: new THREE.Color(curve.color || 0xffffff), points: curve.points });
       });
-      group.visible = curvesVisible;
+      group.visible = s.visible;
       scene.add(group);
-      curveGroup = group;
-      syncCurvesButton();
-      updateCurveColors();   // initialise colours for current camera position
+      s.group = group;
+      syncCurveSetBtn(s);
+      updateCurveSetColors(s);
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -530,7 +525,8 @@
         if (msg.type === 'crumple')  loadMesh('crumple',  msg.data);
         if (msg.type === 'headform') loadMesh('headform', msg.data);
         if (msg.type === 'head')     loadMesh('head',     msg.data);
-        if (msg.type === 'curves')   loadCurves(msg.data);
+        if (msg.type === 'curves')         loadCurveSet('profile',     msg.data);
+        if (msg.type === 'crumple-curves') loadCurveSet('crumpleCrvs', msg.data);
       };
     }
 
