@@ -492,20 +492,64 @@
       syncCurveSetBtn(s);
     });
 
-    function updateCurveSetColors(s) {
-      if (!s.lineData.length) return;
-      const camDir = camera.position.clone().normalize();
-      s.lineData.forEach(({ mat, points }) => {
-        // Average depth of all points → single opacity per curve
-        let sum = 0;
-        points.forEach(p => { sum += p[0]*camDir.x + p[1]*camDir.y + p[2]*camDir.z; });
-        const t = Math.max(0, Math.min(1, (sum / points.length - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
-        mat.opacity = t;
+    // Build a LineMaterial with per-vertex depth-cued transparency injected via
+    // onBeforeCompile. Line2's vertex shader exposes instanceStart/instanceEnd
+    // and uses position.y < 0.5 to select which end of each segment we're on —
+    // we use that to compute the correct world-space depth at each vertex.
+    function makeCurveLineMaterial(color, res) {
+      const camDirUniform = { value: new THREE.Vector3(0, 0, -1) };
+      const mat = new LineMaterial({
+        color:       new THREE.Color(color),
+        linewidth:   3,
+        resolution:  res,
+        transparent: true,
+        depthWrite:  false,
       });
+      mat._camDirUniform = camDirUniform;
+      mat.onBeforeCompile = shader => {
+        shader.uniforms.u_camDir    = camDirUniform;
+        shader.uniforms.u_depthNear = { value: DEPTH_NEAR };
+        shader.uniforms.u_depthFar  = { value: DEPTH_FAR };
+        // Vertex — declare uniform + varying, compute depth per endpoint
+        shader.vertexShader = shader.vertexShader.replace(
+          'void main() {',
+          `uniform vec3 u_camDir;
+varying float vDepthCue;
+void main() {`
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <color_vertex>',
+          `#include <color_vertex>
+{
+  vec3 _wS = (modelMatrix * vec4(instanceStart, 1.0)).xyz;
+  vec3 _wE = (modelMatrix * vec4(instanceEnd,   1.0)).xyz;
+  vDepthCue = (position.y < 0.5) ? dot(_wS, u_camDir) : dot(_wE, u_camDir);
+}`
+        );
+        // Fragment — apply depth-cued alpha
+        shader.fragmentShader = shader.fragmentShader.replace(
+          'void main() {',
+          `uniform float u_depthNear;
+uniform float u_depthFar;
+varying float vDepthCue;
+void main() {`
+        );
+        shader.fragmentShader = shader.fragmentShader.replace(
+          'gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a );',
+          `float _t = clamp((vDepthCue - u_depthFar) / (u_depthNear - u_depthFar), 0.0, 1.0);
+gl_FragColor = vec4( diffuseColor.rgb, diffuseColor.a * _t );`
+        );
+      };
+      mat.customProgramCacheKey = () => 'depth-cue-line';
+      return mat;
     }
 
+    // Push updated camera direction into every curve material
     function updateAllCurveColors() {
-      Object.values(curveSets).forEach(updateCurveSetColors);
+      const camDir = camera.position.clone().normalize();
+      Object.values(curveSets).forEach(s => {
+        s.lineData.forEach(({ mat }) => mat._camDirUniform.value.copy(camDir));
+      });
     }
 
     controls.addEventListener('change', updateAllCurveColors);
@@ -520,13 +564,7 @@
       curves.forEach(curve => {
         const geo = new LineGeometry();
         geo.setPositions(curve.points.flat());
-        const mat = new LineMaterial({
-          color:       new THREE.Color(curve.color || 0xffffff),
-          linewidth:   3,
-          resolution:  res,
-          transparent: true,
-          opacity:     1.0,
-        });
+        const mat = makeCurveLineMaterial(curve.color || 0xffffff, res);
         const line = new Line2(geo, mat);
         line.computeLineDistances();
         group.add(line);
@@ -536,7 +574,7 @@
       scene.add(group);
       s.group = group;
       syncCurveSetBtn(s);
-      updateCurveSetColors(s);
+      updateAllCurveColors();
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -549,15 +587,18 @@
 
     hamburgerEl.addEventListener('click', () => {
       panelsVisible = !panelsVisible;
-      uiRight.style.display  = panelsVisible ? 'flex' : 'none';
-      uiLeftEl.style.display = panelsVisible ? 'flex' : 'none';
+      uiRight.style.display        = panelsVisible ? 'flex' : 'none';
+      uiLeftEl.style.display       = panelsVisible ? 'flex' : 'none';
+      bottomCentreEl.style.display = panelsVisible ? 'flex' : 'none';
       hamburgerEl.classList.toggle('panels-hidden', !panelsVisible);
+      positionHamburger();
     });
 
-    // On portrait, position hamburger just above the bottom-centre bar
+    // On portrait, position hamburger just above the bottom-centre bar (when visible)
     function positionHamburger() {
       if (window.innerHeight > window.innerWidth) {
-        hamburgerEl.style.bottom = (bottomCentreEl.offsetHeight + 32) + 'px';
+        const bcH = panelsVisible ? bottomCentreEl.offsetHeight : 0;
+        hamburgerEl.style.bottom = (bcH + 32) + 'px';
       } else {
         hamburgerEl.style.bottom = '20px';
       }
