@@ -22,6 +22,7 @@ let currentHeadform      = null;
 let currentHead          = null;
 let currentCurves        = null;
 let currentCrumpleCurves = null;
+let currentSessionInfo   = null;
 // ─────────────────────────────────────────────────────────────────────────────
 
 function broadcast(payload) {
@@ -79,6 +80,14 @@ app.post('/upload-crumple-curves', (req, res) => {
   res.sendStatus(200);
 });
 
+// Session info (userName + company for welcome screen)
+app.post('/upload-session-info', (req, res) => {
+  currentSessionInfo = req.body;
+  broadcast({ type: 'session-info', data: currentSessionInfo });
+  console.log(`Session info updated`);
+  res.sendStatus(200);
+});
+
 // Serve viewer
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/viewer.html');
@@ -93,6 +102,7 @@ wss.on('connection', ws => {
   if (currentHead)     ws.send(JSON.stringify({ type: 'head',     data: currentHead }));
   if (currentCurves)        ws.send(JSON.stringify({ type: 'curves',         data: currentCurves }));
   if (currentCrumpleCurves) ws.send(JSON.stringify({ type: 'crumple-curves', data: currentCrumpleCurves }));
+  if (currentSessionInfo)   ws.send(JSON.stringify({ type: 'session-info',   data: currentSessionInfo }));
   ws.on('close', () => console.log('Viewer disconnected'));
 });
 
