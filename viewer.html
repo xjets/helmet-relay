@@ -234,10 +234,12 @@
       return mat;
     }
 
-    // Crumple — fixed lime green
-    const crumpleMaterial = new THREE.MeshPhongMaterial({
-      color: 0x80FF00, shininess: 40, side: THREE.DoubleSide
+    // Crumple — self-illuminated lime green (unlit) + black edge lines added on load
+    const crumpleMaterial = new THREE.MeshBasicMaterial({
+      color: 0x80FF00, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
+    const crumpleEdgeMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
 
     // Headform — diagonal stripe shader
     const headformMaterial = new THREE.ShaderMaterial({
@@ -358,6 +360,11 @@
         if (child.isMesh) {
           child.geometry.computeVertexNormals();
           child.material = t.material;
+          // Crumple: overlay black edge lines as children (inherit visibility)
+          if (key === 'crumple') {
+            const edges = new THREE.EdgesGeometry(child.geometry, 5);
+            child.add(new THREE.LineSegments(edges, crumpleEdgeMaterial));
+          }
         }
       });
       obj.visible  = t.visible;
