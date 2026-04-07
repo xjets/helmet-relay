@@ -201,7 +201,6 @@
 
     const scene  = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a1a);
-    scene.fog = new THREE.FogExp2(0x1a1a1a, 0.0012); // curves-only depth cue
 
     const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(0, 0, -1000);
@@ -442,29 +441,65 @@
     });
     syncCurvesButton();
 
+    // Curve depth-cue state — rebuilt on load, recoloured on camera move
+    let curveLineData = [];   // [{ geo, baseColor: THREE.Color, points: [[x,y,z],...] }]
+    const BG_COLOR = new THREE.Color(0x1a1a1a);
+    const DEPTH_NEAR =  150;  // world units toward camera  → full colour
+    const DEPTH_FAR  = -150;  // world units behind origin  → background colour
+
+    function updateCurveColors() {
+      if (!curveLineData.length) return;
+      const camDir = camera.position.clone().normalize(); // unit vec from origin → camera
+      curveLineData.forEach(({ geo, baseColor, points }) => {
+        const cols = [];
+        points.forEach(p => {
+          // Signed depth along camera axis: positive = toward camera
+          const depth = p[0] * camDir.x + p[1] * camDir.y + p[2] * camDir.z;
+          const t = Math.max(0, Math.min(1, (depth - DEPTH_FAR) / (DEPTH_NEAR - DEPTH_FAR)));
+          cols.push(
+            BG_COLOR.r + (baseColor.r - BG_COLOR.r) * t,
+            BG_COLOR.g + (baseColor.g - BG_COLOR.g) * t,
+            BG_COLOR.b + (baseColor.b - BG_COLOR.b) * t,
+          );
+        });
+        geo.setColors(cols);
+      });
+    }
+
+    // Recolour whenever the camera orbits
+    controls.addEventListener('change', updateCurveColors);
+
     function loadCurves(data) {
       if (curveGroup) scene.remove(curveGroup);
+      curveLineData = [];
       const curves = typeof data === 'string' ? JSON.parse(data) : data;
       const group  = new THREE.Group();
       const res    = new THREE.Vector2(window.innerWidth, window.innerHeight);
       curves.forEach(curve => {
-        const pts = curve.points.flat();          // flat [x,y,z, x,y,z, ...]
+        const pts = curve.points.flat();
         const geo = new LineGeometry();
         geo.setPositions(pts);
+        // Vertex colours carry the depth-cued blend; base colour white so
+        // vertexColors drives the final output unmodified
         const mat = new LineMaterial({
-          color:      curve.color || 0xffffff,
-          linewidth:  3,                          // screen pixels
-          resolution: res,
-          fog:        true,                       // depth cue into background
+          linewidth:    3,
+          resolution:   res,
+          vertexColors: true,
         });
         const line = new Line2(geo, mat);
         line.computeLineDistances();
         group.add(line);
+        curveLineData.push({
+          geo,
+          baseColor: new THREE.Color(curve.color || 0xffffff),
+          points:    curve.points,
+        });
       });
       group.visible = curvesVisible;
       scene.add(group);
       curveGroup = group;
       syncCurvesButton();
+      updateCurveColors();   // initialise colours for current camera position
     }
     // ─────────────────────────────────────────────────────────────────────────
 
