@@ -174,9 +174,12 @@
       width: 500px; max-height: 600px;
       cursor: default;
     }
-    #welcome-box p { font-size: 13px; line-height: 1.65; color: #bbb; letter-spacing: 0.04em; }
-    .w-hi { color: #8fc8a0; }
-    #welcome-hint { font-size: 10px; color: #555; letter-spacing: 0.08em; text-align: center; margin-top: 8px; }
+    #welcome-text {
+      font-size: 13px; line-height: 1.8; letter-spacing: 0.04em;
+      color: #33ff33; text-align: center;
+      white-space: pre-wrap;   /* preserves \n line breaks from Grasshopper panel */
+    }
+    #welcome-hint { font-size: 10px; color: #1a991a; letter-spacing: 0.08em; text-align: center; margin-top: 8px; }
 
     /* Portrait mobile */
     @media (orientation: portrait) and (max-width: 768px) {
