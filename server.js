@@ -88,6 +88,14 @@ app.post('/upload-session-info', (req, res) => {
   res.sendStatus(200);
 });
 
+app.get('/session-info', (req, res) => {
+  if (currentSessionInfo) {
+    res.type('text/plain').send(currentSessionInfo);
+  } else {
+    res.sendStatus(204); // no content yet
+  }
+});
+
 // Serve viewer
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/viewer.html');
