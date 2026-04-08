@@ -218,10 +218,8 @@
   <!-- Welcome overlay -->
   <div id="welcome-overlay">
     <div id="welcome-box">
-      <p>Welcome <span class="w-hi" id="w-username">—</span> to the HST Live Session Monitor Version 0.01</p>
-      <p>This online app accompanies the HST video session and provides you with live viewing of the helmet geometry on your device.</p>
-      <p id="w-company-para">Thanks for your participation in the future of helmet design. All feedback is appreciated.</p>
-      <div id="welcome-hint">click anywhere to continue</div>
+      <p id="welcome-text">HST Live Session Monitor</p>
+      <div id="welcome-hint">click anywhere to close this window</div>
     </div>
   </div>
 
@@ -620,19 +618,12 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Welcome screen ────────────────────────────────────────────────────────
-    const welcomeOverlay  = document.getElementById('welcome-overlay');
-    const wUsername       = document.getElementById('w-username');
-    const wCompanyPara    = document.getElementById('w-company-para');
+    const welcomeOverlay = document.getElementById('welcome-overlay');
+    const welcomeText    = document.getElementById('welcome-text');
 
     function showSessionInfo(data) {
-      const info = typeof data === 'string' ? JSON.parse(data) : data;
-      if (info.userName) wUsername.textContent = info.userName;
-      if (info.company && info.company.trim()) {
-        wCompanyPara.innerHTML = `Thanks for <span class="w-hi">${info.company}</span>'s participation in the future of helmet design. All feedback is appreciated.`;
-      } else {
-        wCompanyPara.textContent = "Thanks for your participation in the future of helmet design. All feedback is appreciated.";
-      }
-      // Re-show overlay so the greeting is always seen when session info arrives
+      const text = typeof data === 'string' ? data : JSON.stringify(data);
+      welcomeText.textContent = text;
       welcomeOverlay.style.display = 'flex';
     }
 

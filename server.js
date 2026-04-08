@@ -80,11 +80,11 @@ app.post('/upload-crumple-curves', (req, res) => {
   res.sendStatus(200);
 });
 
-// Session info (userName + company for welcome screen)
+// Session info — plain text welcome message, persisted until updated
 app.post('/upload-session-info', (req, res) => {
-  currentSessionInfo = req.body;
+  currentSessionInfo = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   broadcast({ type: 'session-info', data: currentSessionInfo });
-  console.log(`Session info updated`);
+  console.log(`Session info updated (${currentSessionInfo.length} chars)`);
   res.sendStatus(200);
 });
 
