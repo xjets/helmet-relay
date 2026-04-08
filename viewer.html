@@ -632,6 +632,8 @@
       } else {
         wCompanyPara.textContent = "Thanks for your participation in the future of helmet design. All feedback is appreciated.";
       }
+      // Re-show overlay so the greeting is always seen when session info arrives
+      welcomeOverlay.style.display = 'flex';
     }
 
     welcomeOverlay.addEventListener('click', () => {
