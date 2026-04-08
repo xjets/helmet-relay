@@ -230,8 +230,8 @@
   <div id="bottom-centre">
     <div id="alpha-row">
       <label>ALPHA</label>
-      <input id="alpha-slider" type="range" min="25" max="100" value="100">
-      <span id="alpha-value">1.00</span>
+      <input id="alpha-slider" type="range" min="25" max="100" value="82">
+      <span id="alpha-value">0.82</span>
     </div>
     <div id="matcap-bar"></div>
   </div>
@@ -263,7 +263,8 @@
       'BaseMatCap_112.png',
       'BaseMatCap_115.png',
     ];
-    const DEFAULT_MATCAP = 0;
+    const DEFAULT_MATCAP    = 2;   // BaseMatCap_110.png
+    const DEFAULT_SHELL_ALPHA = 0.82;
 
     // Fixed matcap for head target
     const MATCAP_HEAD = 'BaseMatCap_102.png';
@@ -316,7 +317,7 @@
     // --- Materials ---
     // Shell: swatch-controlled + alpha slider
     const shellMaterial = new THREE.MeshMatcapMaterial({
-      side: THREE.DoubleSide, transparent: true, opacity: 1.0, fog: false,
+      side: THREE.DoubleSide, transparent: true, opacity: DEFAULT_SHELL_ALPHA, fog: false,
     });
 
     function makeFixedMaterial(matcapName) {
