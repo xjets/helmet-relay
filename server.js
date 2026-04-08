@@ -150,6 +150,8 @@ app.get('/', (req, res) => {
 // Send full state to newly connected browser
 wss.on('connection', ws => {
   console.log('Viewer connected');
+  // Notify Processing listener that a new viewer has joined
+  broadcast({ type: 'new-viewer' });
   if (currentShell)         ws.send(JSON.stringify({ type: 'shell',         data: currentShell }));
   if (currentCrumple)       ws.send(JSON.stringify({ type: 'crumple',       data: currentCrumple }));
   if (currentHeadform)      ws.send(JSON.stringify({ type: 'headform',      data: currentHeadform }));
