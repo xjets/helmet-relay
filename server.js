@@ -58,9 +58,11 @@ let currentHead          = loadCache('head');
 let currentCurves        = loadCache('curves');
 let currentCrumpleCurves = loadCache('crumple-curves');
 let currentSessionInfo   = loadCache('session-info');
+let currentIsoHfA        = loadCache('iso-hf-a');
+let currentIsoHfB        = loadCache('iso-hf-b');
 
 console.log(`Cache restored from ${CACHE_DIR}:`,
-  ['shell','crumple','headform','head','curves','crumple-curves','session-info']
+  ['shell','crumple','headform','head','curves','crumple-curves','iso-hf-a','iso-hf-b','session-info']
     .filter(k => loadCache(k) !== null).join(', ') || 'none');
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -104,6 +106,24 @@ app.post('/upload-head', (req, res) => {
   saveCache('head', currentHead);
   broadcast({ type: 'head', data: currentHead });
   console.log(`Head pushed: ${currentHead.length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
+// ISO Headform A
+app.post('/upload-iso-hf-a', (req, res) => {
+  currentIsoHfA = req.body;
+  saveCache('iso-hf-a', currentIsoHfA);
+  broadcast({ type: 'iso-hf-a', data: currentIsoHfA });
+  console.log(`ISO HF A pushed: ${currentIsoHfA.length} bytes, viewers: ${wss.clients.size}`);
+  res.sendStatus(200);
+});
+
+// ISO Headform B
+app.post('/upload-iso-hf-b', (req, res) => {
+  currentIsoHfB = req.body;
+  saveCache('iso-hf-b', currentIsoHfB);
+  broadcast({ type: 'iso-hf-b', data: currentIsoHfB });
+  console.log(`ISO HF B pushed: ${currentIsoHfB.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
 });
 
@@ -156,6 +176,8 @@ wss.on('connection', ws => {
   if (currentCrumple)       ws.send(JSON.stringify({ type: 'crumple',       data: currentCrumple }));
   if (currentHeadform)      ws.send(JSON.stringify({ type: 'headform',      data: currentHeadform }));
   if (currentHead)          ws.send(JSON.stringify({ type: 'head',          data: currentHead }));
+  if (currentIsoHfA)        ws.send(JSON.stringify({ type: 'iso-hf-a',      data: currentIsoHfA }));
+  if (currentIsoHfB)        ws.send(JSON.stringify({ type: 'iso-hf-b',      data: currentIsoHfB }));
   if (currentCurves)        ws.send(JSON.stringify({ type: 'curves',        data: currentCurves }));
   if (currentCrumpleCurves) ws.send(JSON.stringify({ type: 'crumple-curves',data: currentCrumpleCurves }));
   if (currentSessionInfo)   ws.send(JSON.stringify({ type: 'session-info',  data: currentSessionInfo }));

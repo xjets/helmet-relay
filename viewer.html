@@ -204,6 +204,7 @@
     <button id="btn-crumple" ><span class="dot"></span><span class="label">CRUMPLE</span></button>
     <button id="btn-headform"><span class="dot"></span><span class="label">HEADFORM</span></button>
     <button id="btn-head"    ><span class="dot"></span><span class="label">HEAD</span></button>
+    <button id="btn-iso-hf"  ><span class="dot"></span><span class="label">ISO HF</span></button>
   </div>
 
   <!-- Left panel: curves + download -->
@@ -396,6 +397,17 @@
 
     const headMaterial = makeFixedMaterial(MATCAP_HEAD);
 
+    // ISO Headform — dull reflective with black edge lines
+    const isoHfAMaterial = new THREE.MeshStandardMaterial({
+      color: 0x759092, metalness: 0.2, roughness: 0.7,
+      transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
+    });
+    const isoHfBMaterial = new THREE.MeshStandardMaterial({
+      color: 0x5C5AA4, metalness: 0.2, roughness: 0.7,
+      transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
+    });
+    const isoHfEdgeMaterial = new THREE.LineBasicMaterial({ color: 0x000000, fog: false });
+
     // --- Swatch bar (controls shell only) ---
     function applyMatcap(index) {
       texLoader.load('/matcaps/' + MATCAPS[index], tex => {
@@ -431,10 +443,12 @@
 
     // One config object per target — keeps all state together
     const targets = {
-      shell:    { root: null, visible: true,  populated: false, btn: document.getElementById('btn-shell'),    material: shellMaterial,    objString: null },
-      crumple:  { root: null, visible: true,  populated: false, btn: document.getElementById('btn-crumple'),  material: crumpleMaterial,  objString: null },
-      headform: { root: null, visible: true,  populated: false, btn: document.getElementById('btn-headform'), material: headformMaterial, objString: null },
-      head:     { root: null, visible: true,  populated: false, btn: document.getElementById('btn-head'),     material: headMaterial,     objString: null },
+      shell:      { root: null, visible: true,  populated: false, btn: document.getElementById('btn-shell'),   material: shellMaterial,   objString: null },
+      crumple:    { root: null, visible: true,  populated: false, btn: document.getElementById('btn-crumple'), material: crumpleMaterial,  objString: null },
+      headform:   { root: null, visible: true,  populated: false, btn: document.getElementById('btn-headform'),material: headformMaterial, objString: null },
+      head:       { root: null, visible: true,  populated: false, btn: document.getElementById('btn-head'),    material: headMaterial,     objString: null },
+      iso_hf_a:   { root: null, visible: true,  populated: false, btn: document.getElementById('btn-iso-hf'),  material: isoHfAMaterial,  objString: null, sharedBtn: true },
+      iso_hf_b:   { root: null, visible: true,  populated: false, btn: document.getElementById('btn-iso-hf'),  material: isoHfBMaterial,  objString: null, sharedBtn: true },
     };
 
     function syncButton(t) {
@@ -454,10 +468,10 @@
           child.geometry = mergeVertices(child.geometry);
           child.geometry.computeVertexNormals();
           child.material = t.material;
-          // Crumple: overlay black edge lines as children (inherit visibility)
-          if (key === 'crumple') {
+          // Crumple & ISO HF: overlay black edge lines as children (inherit visibility)
+          if (key === 'crumple' || key === 'iso_hf_a' || key === 'iso_hf_b') {
             const edges = new THREE.EdgesGeometry(child.geometry, 5);
-            child.add(new THREE.LineSegments(edges, crumpleEdgeMaterial));
+            child.add(new THREE.LineSegments(edges, isoHfEdgeMaterial));
           }
         }
       });
@@ -468,14 +482,29 @@
       t.populated = true;
       if (key === 'shell') t.objString = objString;
 
-      syncButton(t);
+      if (key === 'iso_hf_a' || key === 'iso_hf_b') {
+        syncIsoHfButton();
+      } else {
+        syncButton(t);
+      }
 
       // Hide waiting message once any mesh arrives
       document.getElementById('waiting').style.display = 'none';
     }
 
-    // Wire toggle buttons
+    // Helper to sync shared ISO HF button based on both targets' states
+    function syncIsoHfButton() {
+      const a = targets.iso_hf_a, b = targets.iso_hf_b;
+      const btn = a.btn;
+      const anyPopulated = a.populated || b.populated;
+      const allHidden = anyPopulated && !a.visible && !b.visible;
+      btn.classList.toggle('populated', anyPopulated);
+      btn.classList.toggle('hidden-mesh', allHidden);
+    }
+
+    // Wire toggle buttons (skip iso_hf_a/b as they share one button)
     Object.entries(targets).forEach(([key, t]) => {
+      if (key === 'iso_hf_a' || key === 'iso_hf_b') return;
       t.btn.addEventListener('click', () => {
         if (!t.populated) return;
         t.visible = !t.visible;
@@ -484,8 +513,24 @@
       });
     });
 
+    // Special handler: ISO HF button toggles both iso_hf_a and iso_hf_b together
+    const isoHfBtn = document.getElementById('btn-iso-hf');
+    isoHfBtn.addEventListener('click', () => {
+      const a = targets.iso_hf_a, b = targets.iso_hf_b;
+      if (!a.populated && !b.populated) return;
+      // Toggle both to the same state (opposite of current)
+      const newState = !a.visible;
+      a.visible = newState; if (a.root) a.root.visible = newState;
+      b.visible = newState; if (b.root) b.root.visible = newState;
+      syncIsoHfButton();
+    });
+
     // Initialise all buttons to unpopulated state
-    Object.values(targets).forEach(syncButton);
+    Object.values(targets).forEach(t => {
+      if (t.sharedBtn) return;  // ISO HF handled separately
+      syncButton(t);
+    });
+    syncIsoHfButton();
 
     // --- Download (shell OBJ) ---
     const dlBtn = document.getElementById('dl-btn');
@@ -664,10 +709,12 @@
       ws.onerror = () => ws.close();
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
-        if (msg.type === 'shell')    loadMesh('shell',    msg.data);
-        if (msg.type === 'crumple')  loadMesh('crumple',  msg.data);
-        if (msg.type === 'headform') loadMesh('headform', msg.data);
-        if (msg.type === 'head')     loadMesh('head',     msg.data);
+        if (msg.type === 'shell')        loadMesh('shell',    msg.data);
+        if (msg.type === 'crumple')      loadMesh('crumple',  msg.data);
+        if (msg.type === 'headform')     loadMesh('headform', msg.data);
+        if (msg.type === 'head')         loadMesh('head',     msg.data);
+        if (msg.type === 'iso-hf-a')     loadMesh('iso_hf_a', msg.data);
+        if (msg.type === 'iso-hf-b')     loadMesh('iso_hf_b', msg.data);
         if (msg.type === 'curves')         loadCurveSet('profile',     msg.data);
         if (msg.type === 'crumple-curves') loadCurveSet('crumpleCrvs', msg.data);
         if (msg.type === 'session-info')   showSessionInfo(msg.data);
