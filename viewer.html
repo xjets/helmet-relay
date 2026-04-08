@@ -397,16 +397,17 @@
 
     const headMaterial = makeFixedMaterial(MATCAP_HEAD);
 
-    // ISO Headform — dull reflective with black edge lines
+    // ISO Headform — self-illuminating, no edges
     const isoHfAMaterial = new THREE.MeshStandardMaterial({
-      color: 0x759092, metalness: 0.2, roughness: 0.7,
+      color: 0x759092, emissive: 0x759092, emissiveIntensity: 0.25,
+      metalness: 0.2, roughness: 0.7,
       transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
     });
     const isoHfBMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5C5AA4, metalness: 0.2, roughness: 0.7,
+      color: 0x5C5AA4, emissive: 0x5C5AA4, emissiveIntensity: 0.25,
+      metalness: 0.2, roughness: 0.7,
       transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
     });
-    const isoHfEdgeMaterial = new THREE.LineBasicMaterial({ color: 0x000000, fog: false });
 
     // --- Swatch bar (controls shell only) ---
     function applyMatcap(index) {
@@ -468,10 +469,10 @@
           child.geometry = mergeVertices(child.geometry);
           child.geometry.computeVertexNormals();
           child.material = t.material;
-          // Crumple & ISO HF: overlay black edge lines as children (inherit visibility)
-          if (key === 'crumple' || key === 'iso_hf_a' || key === 'iso_hf_b') {
+          // Crumple: overlay black edge lines as children (inherit visibility)
+          if (key === 'crumple') {
             const edges = new THREE.EdgesGeometry(child.geometry, 5);
-            child.add(new THREE.LineSegments(edges, isoHfEdgeMaterial));
+            child.add(new THREE.LineSegments(edges, crumpleEdgeMaterial));
           }
         }
       });
