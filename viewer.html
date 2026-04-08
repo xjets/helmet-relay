@@ -634,6 +634,12 @@
     welcomeOverlay.addEventListener('click', () => {
       welcomeOverlay.style.display = 'none';
     });
+
+    // Fetch stored session info immediately on load (before WebSocket fires)
+    fetch('/session-info')
+      .then(r => r.status === 204 ? null : r.text())
+      .then(text => { if (text) showSessionInfo(text); })
+      .catch(() => {});
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---
