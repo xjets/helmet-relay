@@ -724,6 +724,37 @@
 
     connect();
 
+    // --- Polling fallback (handles Passenger multi-worker broadcast miss) ---
+    const pollSeen = {};
+    async function pollState() {
+      try {
+        const res = await fetch('/state');
+        if (!res.ok) return;
+        const ts = await res.json();
+        for (const [key, t] of Object.entries(ts)) {
+          if (!t) continue;
+          if ((pollSeen[key] || 0) >= t) continue;
+          pollSeen[key] = t;
+          // Fetch and load the updated asset
+          const assetRes = await fetch('/' + (key === 'shell' ? 'upload' : 'upload-' + key));
+          if (!assetRes.ok) continue;
+          const body = await assetRes.text();
+          if (!body) continue;
+          if (key === 'shell')            loadMesh('shell',    body);
+          else if (key === 'crumple')     loadMesh('crumple',  body);
+          else if (key === 'headform')    loadMesh('headform', body);
+          else if (key === 'head')        loadMesh('head',     body);
+          else if (key === 'iso-hf-a')    loadMesh('iso_hf_a', body);
+          else if (key === 'iso-hf-b')    loadMesh('iso_hf_b', body);
+          else if (key === 'curves')        loadCurveSet('profile',     body);
+          else if (key === 'crumple-curves') loadCurveSet('crumpleCrvs', body);
+          else if (key === 'session-info')   showSessionInfo(body);
+        }
+      } catch(e) { /* silent — network hiccup */ }
+    }
+    setInterval(pollState, 3000);
+    pollState(); // immediate first poll on load
+
     // --- Render loop ---
     function animate() {
       requestAnimationFrame(animate);

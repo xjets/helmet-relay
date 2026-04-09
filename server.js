@@ -61,6 +61,19 @@ let currentSessionInfo   = loadCache('session-info');
 let currentIsoHfA        = loadCache('iso-hf-a');
 let currentIsoHfB        = loadCache('iso-hf-b');
 
+// ── Last-modified timestamps (used by viewer polling fallback) ────────────────
+const lastUpdated = {
+  shell:          currentShell         ? Date.now() : 0,
+  crumple:        currentCrumple       ? Date.now() : 0,
+  headform:       currentHeadform      ? Date.now() : 0,
+  head:           currentHead          ? Date.now() : 0,
+  curves:         currentCurves        ? Date.now() : 0,
+  'crumple-curves': currentCrumpleCurves ? Date.now() : 0,
+  'iso-hf-a':     currentIsoHfA        ? Date.now() : 0,
+  'iso-hf-b':     currentIsoHfB        ? Date.now() : 0,
+  'session-info': currentSessionInfo   ? Date.now() : 0,
+};
+
 console.log(`Cache restored from ${CACHE_DIR}:`,
   ['shell','crumple','headform','head','curves','crumple-curves','iso-hf-a','iso-hf-b','session-info']
     .filter(k => loadCache(k) !== null).join(', ') || 'none');
@@ -77,81 +90,119 @@ function broadcast(payload) {
 app.post('/upload', (req, res) => {
   currentShell = req.body;
   saveCache('shell', currentShell);
+  lastUpdated.shell = Date.now();
   broadcast({ type: 'shell', data: currentShell });
   console.log(`Shell pushed: ${currentShell.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload', (req, res) => {
+  if (currentShell) res.type('text/plain').send(currentShell); else res.sendStatus(204);
 });
 
 // Crumple
 app.post('/upload-crumple', (req, res) => {
   currentCrumple = req.body;
   saveCache('crumple', currentCrumple);
+  lastUpdated.crumple = Date.now();
   broadcast({ type: 'crumple', data: currentCrumple });
   console.log(`Crumple pushed: ${currentCrumple.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-crumple', (req, res) => {
+  if (currentCrumple) res.type('text/plain').send(currentCrumple); else res.sendStatus(204);
 });
 
 // Headform
 app.post('/upload-headform', (req, res) => {
   currentHeadform = req.body;
   saveCache('headform', currentHeadform);
+  lastUpdated.headform = Date.now();
   broadcast({ type: 'headform', data: currentHeadform });
   console.log(`Headform pushed: ${currentHeadform.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-headform', (req, res) => {
+  if (currentHeadform) res.type('text/plain').send(currentHeadform); else res.sendStatus(204);
 });
 
 // Head
 app.post('/upload-head', (req, res) => {
   currentHead = req.body;
   saveCache('head', currentHead);
+  lastUpdated.head = Date.now();
   broadcast({ type: 'head', data: currentHead });
   console.log(`Head pushed: ${currentHead.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-head', (req, res) => {
+  if (currentHead) res.type('text/plain').send(currentHead); else res.sendStatus(204);
 });
 
 // ISO Headform A
 app.post('/upload-iso-hf-a', (req, res) => {
   currentIsoHfA = req.body;
   saveCache('iso-hf-a', currentIsoHfA);
+  lastUpdated['iso-hf-a'] = Date.now();
   broadcast({ type: 'iso-hf-a', data: currentIsoHfA });
   console.log(`ISO HF A pushed: ${currentIsoHfA.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-iso-hf-a', (req, res) => {
+  if (currentIsoHfA) res.type('text/plain').send(currentIsoHfA); else res.sendStatus(204);
 });
 
 // ISO Headform B
 app.post('/upload-iso-hf-b', (req, res) => {
   currentIsoHfB = req.body;
   saveCache('iso-hf-b', currentIsoHfB);
+  lastUpdated['iso-hf-b'] = Date.now();
   broadcast({ type: 'iso-hf-b', data: currentIsoHfB });
   console.log(`ISO HF B pushed: ${currentIsoHfB.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-iso-hf-b', (req, res) => {
+  if (currentIsoHfB) res.type('text/plain').send(currentIsoHfB); else res.sendStatus(204);
 });
 
 // Curves
 app.post('/upload-curves', (req, res) => {
   currentCurves = req.body;
   saveCache('curves', currentCurves);
+  lastUpdated.curves = Date.now();
   broadcast({ type: 'curves', data: currentCurves });
   console.log(`Curves pushed: ${JSON.stringify(currentCurves).length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-curves', (req, res) => {
+  if (currentCurves) res.type('application/json').send(currentCurves); else res.sendStatus(204);
 });
 
 // Crumple curves
 app.post('/upload-crumple-curves', (req, res) => {
   currentCrumpleCurves = req.body;
   saveCache('crumple-curves', currentCrumpleCurves);
+  lastUpdated['crumple-curves'] = Date.now();
   broadcast({ type: 'crumple-curves', data: currentCrumpleCurves });
   console.log(`Crumple curves pushed: ${JSON.stringify(currentCrumpleCurves).length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
+});
+app.get('/upload-crumple-curves', (req, res) => {
+  if (currentCrumpleCurves) res.type('application/json').send(currentCrumpleCurves); else res.sendStatus(204);
 });
 
 // Session info
 app.post('/upload-session-info', (req, res) => {
   currentSessionInfo = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
   saveCache('session-info', currentSessionInfo);
+  lastUpdated['session-info'] = Date.now();
   broadcast({ type: 'session-info', data: currentSessionInfo });
   console.log(`Session info updated (${currentSessionInfo.length} chars)`);
   res.sendStatus(200);
+});
+
+// ── Polling endpoint — viewer checks this to detect updates ──────────────────
+app.get('/state', (req, res) => {
+  res.json(lastUpdated);
 });
 
 app.get('/session-info', (req, res) => {
