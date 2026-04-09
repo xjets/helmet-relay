@@ -73,70 +73,6 @@ function broadcast(payload) {
   });
 }
 
-// ── OBJ parsing & merging (for accumulating ISO HF meshes) ──────────────────
-function parseOBJ(objString) {
-  const lines = objString.split('\n');
-  const vertices = [], normals = [], faces = [];
-  for (const line of lines) {
-    const parts = line.trim().split(/\s+/);
-    if (!parts[0]) continue;
-    if (parts[0] === 'v' && parts.length >= 4) {
-      vertices.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
-    } else if (parts[0] === 'vn' && parts.length >= 4) {
-      normals.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
-    } else if (parts[0] === 'f' && parts.length >= 4) {
-      const face = [];
-      for (let i = 1; i < parts.length; i++) {
-        const indices = parts[i].split('//');
-        face.push({
-          vi: parseInt(indices[0]) - 1,
-          ni: indices[1] ? parseInt(indices[1]) - 1 : -1
-        });
-      }
-      faces.push(face);
-    }
-  }
-  return { vertices, normals, faces };
-}
-
-function mergeOBJs(currentOBJ, newOBJ) {
-  if (!currentOBJ || currentOBJ.trim() === '') return newOBJ;
-  const current = parseOBJ(currentOBJ);
-  const incoming = parseOBJ(newOBJ);
-
-  const vertexOffset = current.vertices.length;
-  const normalOffset = current.normals.length;
-
-  // Append vertices and normals
-  current.vertices.push(...incoming.vertices);
-  current.normals.push(...incoming.normals);
-
-  // Append faces with offset indices
-  for (const face of incoming.faces) {
-    const offsetFace = face.map(v => ({
-      vi: v.vi + vertexOffset,
-      ni: v.ni >= 0 ? v.ni + normalOffset : -1
-    }));
-    current.faces.push(offsetFace);
-  }
-
-  // Reconstruct OBJ
-  let output = '# Combined ISO Headform mesh\n';
-  for (const v of current.vertices) {
-    output += `v ${v[0].toFixed(6)} ${v[1].toFixed(6)} ${v[2].toFixed(6)}\n`;
-  }
-  for (const n of current.normals) {
-    output += `vn ${n[0].toFixed(6)} ${n[1].toFixed(6)} ${n[2].toFixed(6)}\n`;
-  }
-  for (const face of current.faces) {
-    const faceStr = face.map(v =>
-      v.ni >= 0 ? `${v.vi + 1}//${v.ni + 1}` : `${v.vi + 1}`
-    ).join(' ');
-    output += `f ${faceStr}\n`;
-  }
-  return output;
-}
-
 // Shell
 app.post('/upload', (req, res) => {
   currentShell = req.body;
@@ -173,21 +109,21 @@ app.post('/upload-head', (req, res) => {
   res.sendStatus(200);
 });
 
-// ISO Headform A — merge with existing (accumulate all uploads)
+// ISO Headform A
 app.post('/upload-iso-hf-a', (req, res) => {
-  currentIsoHfA = mergeOBJs(currentIsoHfA, req.body);
+  currentIsoHfA = req.body;
   saveCache('iso-hf-a', currentIsoHfA);
   broadcast({ type: 'iso-hf-a', data: currentIsoHfA });
-  console.log(`ISO HF A merged: ${currentIsoHfA.length} bytes, viewers: ${wss.clients.size}`);
+  console.log(`ISO HF A pushed: ${currentIsoHfA.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
 });
 
-// ISO Headform B — merge with existing (accumulate all uploads)
+// ISO Headform B
 app.post('/upload-iso-hf-b', (req, res) => {
-  currentIsoHfB = mergeOBJs(currentIsoHfB, req.body);
+  currentIsoHfB = req.body;
   saveCache('iso-hf-b', currentIsoHfB);
   broadcast({ type: 'iso-hf-b', data: currentIsoHfB });
-  console.log(`ISO HF B merged: ${currentIsoHfB.length} bytes, viewers: ${wss.clients.size}`);
+  console.log(`ISO HF B pushed: ${currentIsoHfB.length} bytes, viewers: ${wss.clients.size}`);
   res.sendStatus(200);
 });
 
