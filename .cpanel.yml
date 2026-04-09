@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/wetjetco/helmet-relay/
-    - /bin/touch ${DEPLOYPATH}tmp/restart.txt
+    - /bin/mkdir -p /home/wetjetco/helmet-relay/tmp
+    - /bin/touch /home/wetjetco/helmet-relay/tmp/restart.txt
