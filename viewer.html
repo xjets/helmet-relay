@@ -400,13 +400,13 @@
     // ISO Headform — self-illuminating, no edges
     const isoHfAMaterial = new THREE.MeshStandardMaterial({
       color: 0x759092, emissive: 0x759092, emissiveIntensity: 0.25,
-      metalness: 0.2, roughness: 0.7,
-      transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
+      metalness: 0.5, roughness: 0.25,
+      transparent: false, side: THREE.DoubleSide, fog: false
     });
     const isoHfBMaterial = new THREE.MeshStandardMaterial({
       color: 0x5C5AA4, emissive: 0x5C5AA4, emissiveIntensity: 0.25,
-      metalness: 0.2, roughness: 0.7,
-      transparent: true, opacity: 0.85, side: THREE.DoubleSide, fog: false
+      metalness: 0.5, roughness: 0.25,
+      transparent: false, side: THREE.DoubleSide, fog: false
     });
 
     // --- Swatch bar (controls shell only) ---
