@@ -207,7 +207,7 @@ app.get('/state', (req, res) => {
 
 // ── Pick point — viewer POSTs picked mesh coordinate, relay to Processing ────
 app.post('/pick-point', (req, res) => {
-  const pt = req.body;
+  const pt = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   console.log(`Pick point: X=${pt.x} Y=${pt.y} Z=${pt.z}`);
   broadcast({ type: 'pick-point', x: pt.x, y: pt.y, z: pt.z });
   res.sendStatus(200);
