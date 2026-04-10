@@ -81,6 +81,18 @@
     /* Download — no dot, centred */
     #dl-btn { justify-content: center; }
 
+    /* SELECT PT button — active state */
+    #select-btn.active { color: #ff6030; border-color: #ff6030; background: #1a0800; cursor: crosshair; }
+    #select-btn.active .dot { background: #ff6030; }
+
+    /* Picked coordinate readout */
+    #pick-coords {
+      font-size: 9px; color: #888; font-family: monospace;
+      padding: 2px 6px; line-height: 1.6;
+      display: none;
+    }
+    #pick-coords.visible { display: block; }
+
     /* Curves — has dot, uses same green/yellow as right buttons
        but yellow is 10% more faded than mesh buttons */
     #curves-toggle.populated.hidden-mesh {
@@ -211,6 +223,8 @@
   <div id="ui-left">
     <button id="curves-toggle"      ><span class="dot"></span><span class="label">SHOW CURVES</span></button>
     <button id="crumple-crvs-toggle"><span class="dot"></span><span class="label">SHOW CRUMPLE CRVS</span></button>
+    <button id="select-btn"><span class="dot" id="select-dot"></span><span class="label">SELECT PT</span></button>
+    <div id="pick-coords"></div>
     <button id="dl-btn">DOWNLOAD OBJ</button>
   </div>
 
@@ -686,6 +700,82 @@
       .then(r => r.status === 204 ? null : r.text())
       .then(text => { if (text) showSessionInfo(text); })
       .catch(() => {});
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Point Select ─────────────────────────────────────────────────────────────
+    const selectBtn    = document.getElementById('select-btn');
+    const pickCoords   = document.getElementById('pick-coords');
+    const raycaster    = new THREE.Raycaster();
+    const mouse        = new THREE.Vector2();
+    let   selectMode   = false;
+    let   pickMarker   = null;
+
+    selectBtn.addEventListener('click', () => {
+      selectMode = !selectMode;
+      selectBtn.classList.toggle('active', selectMode);
+      controls.enabled = !selectMode; // disable orbit while selecting
+    });
+
+    function getPickableMeshes() {
+      const meshes = [];
+      // Only pick against visible, populated meshes
+      for (const key of ['shell','crumple','headform','iso_hf_a','iso_hf_b']) {
+        const t = targets[key];
+        if (t && t.root && t.visible) {
+          t.root.traverse(child => { if (child.isMesh) meshes.push(child); });
+        }
+      }
+      return meshes;
+    }
+
+    function handlePick(clientX, clientY) {
+      if (!selectMode) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x =  ((clientX - rect.left)  / rect.width)  * 2 - 1;
+      mouse.y = -((clientY - rect.top)   / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(getPickableMeshes(), false);
+      if (!hits.length) return;
+
+      const pt = hits[0].point; // THREE.js coords
+
+      // Convert back to Rhino space: Rhino X=x, Y=-z, Z=y
+      const rx = pt.x, ry = -pt.z, rz = pt.y;
+
+      // Place / replace marker sphere
+      if (pickMarker) scene.remove(pickMarker);
+      pickMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(3, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0xff4400 })
+      );
+      pickMarker.position.copy(pt);
+      scene.add(pickMarker);
+
+      // Show coords in panel
+      pickCoords.textContent = `X ${rx.toFixed(1)}\nY ${ry.toFixed(1)}\nZ ${rz.toFixed(1)}`;
+      pickCoords.classList.add('visible');
+
+      // Transmit to relay → Processing
+      fetch('/pick-point', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: rx, y: ry, z: rz })
+      }).catch(() => {});
+
+      // Exit select mode after pick
+      selectMode = false;
+      selectBtn.classList.remove('active');
+      controls.enabled = true;
+    }
+
+    renderer.domElement.addEventListener('click', e => {
+      handlePick(e.clientX, e.clientY);
+    });
+    renderer.domElement.addEventListener('touchend', e => {
+      if (e.changedTouches.length === 1) {
+        handlePick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      }
+    }, { passive: true });
     // ─────────────────────────────────────────────────────────────────────────
 
     // --- WebSocket ---

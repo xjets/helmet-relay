@@ -205,6 +205,14 @@ app.get('/state', (req, res) => {
   res.json(lastUpdated);
 });
 
+// ── Pick point — viewer POSTs picked mesh coordinate, relay to Processing ────
+app.post('/pick-point', (req, res) => {
+  const pt = req.body;
+  console.log(`Pick point: X=${pt.x} Y=${pt.y} Z=${pt.z}`);
+  broadcast({ type: 'pick-point', x: pt.x, y: pt.y, z: pt.z });
+  res.sendStatus(200);
+});
+
 app.get('/session-info', (req, res) => {
   if (currentSessionInfo) {
     res.type('text/plain').send(currentSessionInfo);
