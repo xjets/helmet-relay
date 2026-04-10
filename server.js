@@ -226,11 +226,25 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/viewer.html');
 });
 
+// Keepalive ping — prevents pong timeout on idle connections
+const PING_INTERVAL_MS = 30000;
+setInterval(() => {
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.ping();
+  });
+}, PING_INTERVAL_MS);
+
 // Send full state to newly connected browser
 wss.on('connection', ws => {
   console.log('Viewer connected');
-  // Notify Processing listener that a new viewer has joined
-  broadcast({ type: 'new-viewer' });
+  // Notify OTHER connected clients (e.g. Processing listener) that a new viewer joined.
+  // Do NOT broadcast back to the connecting client itself — that would cause
+  // Processing to trigger a full resend every time it reconnects.
+  wss.clients.forEach(client => {
+    if (client !== ws && client.readyState === 1) {
+      client.send(JSON.stringify({ type: 'new-viewer' }));
+    }
+  });
   if (currentShell)         ws.send(JSON.stringify({ type: 'shell',         data: currentShell }));
   if (currentCrumple)       ws.send(JSON.stringify({ type: 'crumple',       data: currentCrumple }));
   if (currentHeadform)      ws.send(JSON.stringify({ type: 'headform',      data: currentHeadform }));
