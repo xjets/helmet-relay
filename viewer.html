@@ -755,9 +755,9 @@
       C: { hex: '#4499ff', three: 0x4499ff, rgb: [0.27, 0.60, 1.0 ] }
     };
     const pickState = {
-      A: { active: false, sphere: null, disc: null },
-      B: { active: false, sphere: null, disc: null },
-      C: { active: false, sphere: null, disc: null }
+      A: { active: false, sphere: null, disc: null, sphere2: null, disc2: null },
+      B: { active: false, sphere: null, disc: null, sphere2: null, disc2: null },
+      C: { active: false, sphere: null, disc: null, sphere2: null, disc2: null }
     };
 
     // Shared disc geometry — radius 25, reused for all picks
@@ -803,13 +803,17 @@
           controls.enabled = true;
         }
         for (const key of ['A','B','C']) {
-          if (pickState[key].sphere) pickState[key].sphere.visible = false;
-          if (pickState[key].disc)   pickState[key].disc.visible   = false;
+          if (pickState[key].sphere)  pickState[key].sphere.visible  = false;
+          if (pickState[key].disc)    pickState[key].disc.visible    = false;
+          if (pickState[key].sphere2) pickState[key].sphere2.visible = false;
+          if (pickState[key].disc2)   pickState[key].disc2.visible   = false;
         }
       } else {
         for (const key of ['A','B','C']) {
-          if (pickState[key].sphere) pickState[key].sphere.visible = true;
-          if (pickState[key].disc)   pickState[key].disc.visible   = true;
+          if (pickState[key].sphere)  pickState[key].sphere.visible  = true;
+          if (pickState[key].disc)    pickState[key].disc.visible    = true;
+          if (pickState[key].sphere2) pickState[key].sphere2.visible = true;
+          if (pickState[key].disc2)   pickState[key].disc2.visible   = true;
         }
       }
     });
@@ -824,9 +828,11 @@
           pickButtonsEl.classList.add('visible');
         }
         if (activePickKey === key) {
-          // Second click without pick: clear sphere + disc + deactivate
-          if (pickState[key].sphere) { scene.remove(pickState[key].sphere); pickState[key].sphere = null; }
-          if (pickState[key].disc)   { scene.remove(pickState[key].disc);   pickState[key].disc   = null; }
+          // Second click without pick: clear sphere + disc (both sides) + deactivate
+          if (pickState[key].sphere)  { scene.remove(pickState[key].sphere);  pickState[key].sphere  = null; }
+          if (pickState[key].disc)    { scene.remove(pickState[key].disc);    pickState[key].disc    = null; }
+          if (pickState[key].sphere2) { scene.remove(pickState[key].sphere2); pickState[key].sphere2 = null; }
+          if (pickState[key].disc2)   { scene.remove(pickState[key].disc2);   pickState[key].disc2   = null; }
           document.getElementById('pick-' + key.toLowerCase()).classList.remove('active','placed');
           activePickKey    = null;
           controls.enabled = true;
@@ -867,11 +873,19 @@
       // Three.js → Rhino space: X=x, Y=-z, Z=y
       const rx = pt.x, ry = -pt.z, rz = pt.y;
 
-      // Remove old sphere + disc for this slot
-      if (pickState[key].sphere) scene.remove(pickState[key].sphere);
-      if (pickState[key].disc)   scene.remove(pickState[key].disc);
+      // Remove old sphere + disc (both sides) for this slot
+      if (pickState[key].sphere)  scene.remove(pickState[key].sphere);
+      if (pickState[key].disc)    scene.remove(pickState[key].disc);
+      if (pickState[key].sphere2) scene.remove(pickState[key].sphere2);
+      if (pickState[key].disc2)   scene.remove(pickState[key].disc2);
 
-      // Sphere marker
+      // Surface normal at hit point
+      const normal = hits[0].face.normal.clone()
+        .transformDirection(hits[0].object.matrixWorld).normalize();
+      // Mirrored normal: negate X (YZ-plane symmetry)
+      const normalM = new THREE.Vector3(-normal.x, normal.y, normal.z).normalize();
+
+      // ── Primary side ──────────────────────────────────────────────────────────
       const sphere = new THREE.Mesh(
         new THREE.SphereGeometry(8, 12, 12),
         new THREE.MeshBasicMaterial({ color: PICK_DEFS[key].three })
@@ -880,15 +894,28 @@
       scene.add(sphere);
       pickState[key].sphere = sphere;
 
-      // Radial fade disc on mesh surface
       const disc = new THREE.Mesh(discGeo, makeDiscMaterial(PICK_DEFS[key].rgb));
-      // Orient disc to face along the hit surface normal
-      const normal = hits[0].face.normal.clone()
-        .transformDirection(hits[0].object.matrixWorld).normalize();
       disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-      disc.position.copy(pt).addScaledVector(normal, 0.5); // slight offset to avoid z-fight
+      disc.position.copy(pt).addScaledVector(normal, 0.5);
       scene.add(disc);
       pickState[key].disc = disc;
+
+      // ── Mirrored side (X → -X) ────────────────────────────────────────────────
+      const ptM = new THREE.Vector3(-pt.x, pt.y, pt.z);
+
+      const sphere2 = new THREE.Mesh(
+        new THREE.SphereGeometry(8, 12, 12),
+        new THREE.MeshBasicMaterial({ color: PICK_DEFS[key].three })
+      );
+      sphere2.position.copy(ptM);
+      scene.add(sphere2);
+      pickState[key].sphere2 = sphere2;
+
+      const disc2 = new THREE.Mesh(discGeo, makeDiscMaterial(PICK_DEFS[key].rgb));
+      disc2.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normalM);
+      disc2.position.copy(ptM).addScaledVector(normalM, 0.5);
+      scene.add(disc2);
+      pickState[key].disc2 = disc2;
 
       // Update button state
       const btn = document.getElementById('pick-' + key.toLowerCase());
