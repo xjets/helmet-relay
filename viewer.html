@@ -81,17 +81,32 @@
     /* Download — no dot, centred */
     #dl-btn { justify-content: center; }
 
-    /* SELECT PT button — active state */
-    #select-btn.active { color: #ff6030; border-color: #ff6030; background: #1a0800; cursor: crosshair; }
-    #select-btn.active .dot { background: #ff6030; }
-
-    /* Picked coordinate readout */
-    #pick-coords {
-      font-size: 9px; color: #888; font-family: monospace;
-      padding: 2px 6px; line-height: 1.6;
-      display: none;
+    /* ── Pick buttons — lower-left vertical column ────────────────────────── */
+    #pick-buttons {
+      position: fixed; bottom: 20px; left: 16px; z-index: 20;
+      display: flex; flex-direction: column-reverse; gap: 6px;
     }
-    #pick-coords.visible { display: block; }
+    .pick-btn {
+      width: 42px; height: 42px; min-width: unset; padding: 0;
+      justify-content: center; align-items: center;
+      background: #1e1e1e; border: 1px solid #2a2a2a;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s;
+    }
+    .pick-btn:hover  { background: #252525; border-color: #444; }
+    .pick-btn.active { background: #1a1000; cursor: crosshair; }
+    .pick-btn.placed { background: #151515; }
+    /* per-colour border & glow when active */
+    #pick-a.active { border-color: #ff3030; box-shadow: 0 0 6px #ff303066; }
+    #pick-b.active { border-color: #33ff66; box-shadow: 0 0 6px #33ff6666; }
+    #pick-c.active { border-color: #4499ff; box-shadow: 0 0 6px #4499ff66; }
+    #pick-a.placed { border-color: #882020; }
+    #pick-b.placed { border-color: #208840; }
+    #pick-c.placed { border-color: #204488; }
+
+    /* Portrait mobile — pick buttons move to right, hamburger stays left */
+    @media (orientation: portrait) {
+      #pick-buttons { left: auto; right: 16px; }
+    }
 
     /* Curves — has dot, uses same green/yellow as right buttons
        but yellow is 10% more faded than mesh buttons */
@@ -223,9 +238,39 @@
   <div id="ui-left">
     <button id="curves-toggle"      ><span class="dot"></span><span class="label">SHOW CURVES</span></button>
     <button id="crumple-crvs-toggle"><span class="dot"></span><span class="label">SHOW CRUMPLE CRVS</span></button>
-    <button id="select-btn"><span class="dot" id="select-dot"></span><span class="label">SELECT PT</span></button>
-    <div id="pick-coords"></div>
+    <button id="select-pts-btn"><span class="dot"></span><span class="label">SELECT PTS</span></button>
     <button id="dl-btn">DOWNLOAD OBJ</button>
+  </div>
+
+  <!-- Pick buttons — lower left, vertical column -->
+  <div id="pick-buttons">
+    <button id="pick-a" class="pick-btn" title="Pick point A">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="11" r="6" stroke="#ff3030" stroke-width="1.5"/>
+        <line x1="11" y1="1" x2="11" y2="5"  stroke="#ff3030" stroke-width="1.5"/>
+        <line x1="11" y1="17" x2="11" y2="21" stroke="#ff3030" stroke-width="1.5"/>
+        <line x1="1"  y1="11" x2="5"  y2="11" stroke="#ff3030" stroke-width="1.5"/>
+        <line x1="17" y1="11" x2="21" y2="11" stroke="#ff3030" stroke-width="1.5"/>
+      </svg>
+    </button>
+    <button id="pick-b" class="pick-btn" title="Pick point B">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="11" r="6" stroke="#33ff66" stroke-width="1.5"/>
+        <line x1="11" y1="1" x2="11" y2="5"  stroke="#33ff66" stroke-width="1.5"/>
+        <line x1="11" y1="17" x2="11" y2="21" stroke="#33ff66" stroke-width="1.5"/>
+        <line x1="1"  y1="11" x2="5"  y2="11" stroke="#33ff66" stroke-width="1.5"/>
+        <line x1="17" y1="11" x2="21" y2="11" stroke="#33ff66" stroke-width="1.5"/>
+      </svg>
+    </button>
+    <button id="pick-c" class="pick-btn" title="Pick point C">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="11" r="6" stroke="#4499ff" stroke-width="1.5"/>
+        <line x1="11" y1="1" x2="11" y2="5"  stroke="#4499ff" stroke-width="1.5"/>
+        <line x1="11" y1="17" x2="11" y2="21" stroke="#4499ff" stroke-width="1.5"/>
+        <line x1="1"  y1="11" x2="5"  y2="11" stroke="#4499ff" stroke-width="1.5"/>
+        <line x1="17" y1="11" x2="21" y2="11" stroke="#4499ff" stroke-width="1.5"/>
+      </svg>
+    </button>
   </div>
 
   <!-- Hamburger toggle — panels (surfaces + curves) -->
@@ -703,22 +748,75 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Point Select ─────────────────────────────────────────────────────────────
-    const selectBtn    = document.getElementById('select-btn');
-    const pickCoords   = document.getElementById('pick-coords');
+    const PICK_DEFS = {
+      A: { hex: '#ff3030', three: 0xff3030 },
+      B: { hex: '#33ff66', three: 0x33ff66 },
+      C: { hex: '#4499ff', three: 0x4499ff }
+    };
+    const pickState = {
+      A: { active: false, sphere: null },
+      B: { active: false, sphere: null },
+      C: { active: false, sphere: null }
+    };
+    let activePickKey  = null;
+    let selectPtsOn    = false;  // master visibility
+
+    const selectPtsBtn = document.getElementById('select-pts-btn');
     const raycaster    = new THREE.Raycaster();
     const mouse        = new THREE.Vector2();
-    let   selectMode   = false;
-    let   pickMarker   = null;
 
-    selectBtn.addEventListener('click', () => {
-      selectMode = !selectMode;
-      selectBtn.classList.toggle('active', selectMode);
-      controls.enabled = !selectMode; // disable orbit while selecting
+    // Master toggle — show/hide all spheres; clear active pick mode
+    selectPtsBtn.addEventListener('click', () => {
+      selectPtsOn = !selectPtsOn;
+      selectPtsBtn.classList.toggle('populated', selectPtsOn);
+      if (!selectPtsOn) {
+        // Clear active mode and hide all spheres
+        if (activePickKey) {
+          document.getElementById('pick-' + activePickKey.toLowerCase()).classList.remove('active');
+          activePickKey = null;
+          controls.enabled = true;
+        }
+        for (const key of ['A','B','C']) {
+          if (pickState[key].sphere) pickState[key].sphere.visible = false;
+        }
+      } else {
+        for (const key of ['A','B','C']) {
+          if (pickState[key].sphere) pickState[key].sphere.visible = true;
+        }
+      }
     });
+
+    // Per-colour pick buttons
+    for (const key of ['A','B','C']) {
+      document.getElementById('pick-' + key.toLowerCase()).addEventListener('click', () => {
+        if (!selectPtsOn) {
+          // Auto-enable master toggle on first pick button press
+          selectPtsOn = true;
+          selectPtsBtn.classList.add('populated');
+        }
+        if (activePickKey === key) {
+          // Second click without pick: clear sphere + deactivate
+          if (pickState[key].sphere) {
+            scene.remove(pickState[key].sphere);
+            pickState[key].sphere = null;
+          }
+          document.getElementById('pick-' + key.toLowerCase()).classList.remove('active','placed');
+          activePickKey    = null;
+          controls.enabled = true;
+        } else {
+          // Deactivate any other active key
+          if (activePickKey) {
+            document.getElementById('pick-' + activePickKey.toLowerCase()).classList.remove('active');
+          }
+          activePickKey    = key;
+          controls.enabled = false;
+          document.getElementById('pick-' + key.toLowerCase()).classList.add('active');
+        }
+      });
+    }
 
     function getPickableMeshes() {
       const meshes = [];
-      // Only pick against visible, populated meshes
       for (const key of ['shell','crumple','headform','iso_hf_a','iso_hf_b']) {
         const t = targets[key];
         if (t && t.root && t.visible) {
@@ -729,7 +827,7 @@
     }
 
     function handlePick(clientX, clientY) {
-      if (!selectMode) return;
+      if (!activePickKey) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x =  ((clientX - rect.left)  / rect.width)  * 2 - 1;
       mouse.y = -((clientY - rect.top)   / rect.height) * 2 + 1;
@@ -737,44 +835,41 @@
       const hits = raycaster.intersectObjects(getPickableMeshes(), false);
       if (!hits.length) return;
 
-      const pt = hits[0].point; // THREE.js coords
-
-      // Convert back to Rhino space: Rhino X=x, Y=-z, Z=y
+      const key = activePickKey;
+      const pt  = hits[0].point;
+      // Three.js → Rhino space: X=x, Y=-z, Z=y
       const rx = pt.x, ry = -pt.z, rz = pt.y;
 
-      // Place / replace marker sphere
-      if (pickMarker) scene.remove(pickMarker);
-      pickMarker = new THREE.Mesh(
-        new THREE.SphereGeometry(3, 10, 10),
-        new THREE.MeshBasicMaterial({ color: 0xff4400 })
+      // Remove old sphere for this slot
+      if (pickState[key].sphere) scene.remove(pickState[key].sphere);
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(8, 12, 12),
+        new THREE.MeshBasicMaterial({ color: PICK_DEFS[key].three })
       );
-      pickMarker.position.copy(pt);
-      scene.add(pickMarker);
+      sphere.position.copy(pt);
+      scene.add(sphere);
+      pickState[key].sphere = sphere;
 
-      // Show coords in panel
-      pickCoords.textContent = `X ${rx.toFixed(1)}\nY ${ry.toFixed(1)}\nZ ${rz.toFixed(1)}`;
-      pickCoords.classList.add('visible');
+      // Update button state
+      const btn = document.getElementById('pick-' + key.toLowerCase());
+      btn.classList.remove('active');
+      btn.classList.add('placed');
 
-      // Transmit to relay → Processing
+      // Transmit
       fetch('/pick-point', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x: rx, y: ry, z: rz })
+        body: JSON.stringify({ label: 'Pickpoint ' + key, x: rx, y: ry, z: rz })
       }).catch(() => {});
 
-      // Exit select mode after pick
-      selectMode = false;
-      selectBtn.classList.remove('active');
+      activePickKey    = null;
       controls.enabled = true;
     }
 
-    renderer.domElement.addEventListener('click', e => {
-      handlePick(e.clientX, e.clientY);
-    });
+    renderer.domElement.addEventListener('click', e => { handlePick(e.clientX, e.clientY); });
     renderer.domElement.addEventListener('touchend', e => {
-      if (e.changedTouches.length === 1) {
+      if (e.changedTouches.length === 1)
         handlePick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-      }
     }, { passive: true });
     // ─────────────────────────────────────────────────────────────────────────
 
