@@ -761,28 +761,34 @@
     };
 
     // Shared disc geometry — radius 25, reused for all picks
-    const discGeo = new THREE.CircleGeometry(25, 48);
+    const discGeo = new THREE.CircleGeometry(25, 64);
 
-    function makeDiscMaterial(rgb) {
-      return new THREE.ShaderMaterial({
-        transparent: true, depthWrite: false, side: THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-        uniforms: { uColor: { value: new THREE.Vector3(...rgb) } },
-        vertexShader: `
-          varying vec2 vUv;
-          void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }
-        `,
-        fragmentShader: `
-          varying vec2 vUv;
-          uniform vec3 uColor;
-          void main() {
-            float d = length(vUv - vec2(0.5)) * 2.0;
-            float a = smoothstep(1.0, 0.2, d) * 0.72;
-            gl_FragColor = vec4(uColor, a);
-          }
-        `
-      });
-    }
+    // Classic bullseye target — yellow / red / blue / black
+    // Ring UV boundaries chosen so sphere (r=8, UV=0.32) lands exactly
+    // on the red→blue edge, covering the two inner rings.
+    const targetDiscMaterial = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        void main() {
+          float d = length(vUv - vec2(0.5)) * 2.0;
+          float fw = fwidth(d) * 1.5;
+          if (d > 1.0) { gl_FragColor = vec4(0.0); return; }
+          vec3 col;
+          if      (d < 0.16) col = vec3(1.00, 0.86, 0.00); // yellow (inner)
+          else if (d < 0.32) col = vec3(0.88, 0.06, 0.06); // red
+          else if (d < 0.66) col = vec3(0.12, 0.25, 0.80); // blue
+          else               col = vec3(0.00, 0.00, 0.00); // black (outer)
+          float alpha = 1.0 - smoothstep(1.0 - fw, 1.0, d);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `
+    });
     let activePickKey  = null;
     let selectPtsOn    = false;  // master visibility
 
@@ -894,7 +900,7 @@
       scene.add(sphere);
       pickState[key].sphere = sphere;
 
-      const disc = new THREE.Mesh(discGeo, makeDiscMaterial(PICK_DEFS[key].rgb));
+      const disc = new THREE.Mesh(discGeo, targetDiscMaterial);
       disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
       disc.position.copy(pt).addScaledVector(normal, 0.5);
       scene.add(disc);
@@ -911,7 +917,7 @@
       scene.add(sphere2);
       pickState[key].sphere2 = sphere2;
 
-      const disc2 = new THREE.Mesh(discGeo, makeDiscMaterial(PICK_DEFS[key].rgb));
+      const disc2 = new THREE.Mesh(discGeo, targetDiscMaterial);
       disc2.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normalM);
       disc2.position.copy(ptM).addScaledVector(normalM, 0.5);
       scene.add(disc2);
