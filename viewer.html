@@ -374,73 +374,73 @@
     const texLoader = new THREE.TextureLoader();
 
     // --- Materials ---
-    // Shell: swatch-controlled + alpha slider
-    const shellMaterial = new THREE.MeshMatcapMaterial({
-      side: THREE.DoubleSide, transparent: true, opacity: DEFAULT_SHELL_ALPHA, fog: false,
-    });
-
-    // Pick-point uniforms — injected into the shell shader (defined here so
-    // onBeforeCompile can close over them; values updated by updatePickUniform)
-    const pickUniforms = {
-      u_pick0:      { value: new THREE.Vector3() },
-      u_pick1:      { value: new THREE.Vector3() },
-      u_pick2:      { value: new THREE.Vector3() },
-      u_pickActive: { value: new THREE.Vector3() },  // x=A, y=B, z=C active flags
-      u_pickShow:   { value: 1.0 }
-    };
-
-    // Inject bullseye ring logic into the shell matcap shader.
-    // Fully unrolled — no dynamic array indexing (avoids silent GLSL compile errors).
+    // Shell: custom ShaderMaterial — matcap rendering + bullseye ring overlay.
+    // Using ShaderMaterial avoids all onBeforeCompile fragility; uniforms are
+    // first-class and update reliably on every render.
     // Ring radii (world units): yellow 0-4, red 4-8, blue 8-18, black 18-26.
-    // Sphere (r=8) covers yellow+red. Mirror computed in GLSL (d = min dist to ±X).
-    shellMaterial.onBeforeCompile = shader => {
-      shader.uniforms.u_pick0      = pickUniforms.u_pick0;
-      shader.uniforms.u_pick1      = pickUniforms.u_pick1;
-      shader.uniforms.u_pick2      = pickUniforms.u_pick2;
-      shader.uniforms.u_pickActive = pickUniforms.u_pickActive;
-      shader.uniforms.u_pickShow   = pickUniforms.u_pickShow;
-
-      // Vertex: pass world position to fragment shader
-      shader.vertexShader = 'varying vec3 vWorldPos;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <project_vertex>',
-        '#include <project_vertex>\nvWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
-      );
-
-      // Fragment: declare pars + inject ring computation before output
-      shader.fragmentShader =
-        'varying vec3 vWorldPos;\n' +
-        'uniform vec3 u_pick0, u_pick1, u_pick2, u_pickActive;\n' +
-        'uniform float u_pickShow;\n' +
-        shader.fragmentShader;
-
-      // Unrolled ring function — one block per slot, no loops or array indexing
-      const ringGLSL = (pickUniform, activeSwizzle) => `
-        {
-          float _d = min(
-            length(vWorldPos - ${pickUniform}),
-            length(vWorldPos - vec3(-${pickUniform}.x, ${pickUniform}.y, ${pickUniform}.z))
-          );
-          if (u_pickActive.${activeSwizzle} > 0.5 && _d < 26.0) {
-            vec3 _rc = vec3(0.0, 0.0, 0.0);
-            if      (_d <  4.0) _rc = vec3(1.00, 0.86, 0.00);
-            else if (_d <  8.0) _rc = vec3(0.88, 0.06, 0.06);
-            else if (_d < 18.0) _rc = vec3(0.12, 0.25, 0.80);
-            outgoingLight = mix(outgoingLight, _rc, 1.0 - smoothstep(24.0, 26.0, _d));
-          }
-        }`;
-
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <output_fragment>',
-        `if (u_pickShow > 0.5) {
-          ${ringGLSL('u_pick0', 'x')}
-          ${ringGLSL('u_pick1', 'y')}
-          ${ringGLSL('u_pick2', 'z')}
+    // Sphere (r=8) occludes yellow+red via depth buffer.
+    // Mirror handled in shader: d = min(dist, dist_to_-X_counterpart).
+    const shellMaterial = new THREE.ShaderMaterial({
+      side: THREE.DoubleSide, transparent: true, fog: false,
+      uniforms: {
+        matcap:       { value: null },
+        opacity:      { value: DEFAULT_SHELL_ALPHA },
+        u_pick0:      { value: new THREE.Vector3() },
+        u_pick1:      { value: new THREE.Vector3() },
+        u_pick2:      { value: new THREE.Vector3() },
+        u_pickActive: { value: new THREE.Vector3() },
+        u_pickShow:   { value: 1.0 },
+      },
+      vertexShader: `
+        varying vec3 vViewPos;
+        varying vec3 vNorm;
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 mv     = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          vViewPos    = -mv.xyz;
+          vNorm       = normalMatrix * normal;
+          vWorldPos   = (modelMatrix * vec4(position, 1.0)).xyz;
         }
-        #include <output_fragment>`
-      );
-    };
-    shellMaterial.customProgramCacheKey = () => 'shell-with-picks';
+      `,
+      fragmentShader: `
+        uniform sampler2D matcap;
+        uniform float     opacity;
+        uniform vec3      u_pick0, u_pick1, u_pick2, u_pickActive;
+        uniform float     u_pickShow;
+        varying vec3 vViewPos;
+        varying vec3 vNorm;
+        varying vec3 vWorldPos;
+
+        vec3 applyRing(vec3 col, vec3 p, float active) {
+          if (active < 0.5) return col;
+          float d = min(length(vWorldPos - p),
+                        length(vWorldPos - vec3(-p.x, p.y, p.z)));
+          if (d >= 26.0) return col;
+          vec3 rc = vec3(0.0);
+          if      (d <  4.0) rc = vec3(1.00, 0.86, 0.00);
+          else if (d <  8.0) rc = vec3(0.88, 0.06, 0.06);
+          else if (d < 18.0) rc = vec3(0.12, 0.25, 0.80);
+          return mix(col, rc, 1.0 - smoothstep(24.0, 26.0, d));
+        }
+
+        void main() {
+          vec3 n  = normalize(vNorm);
+          if (!gl_FrontFacing) n = -n;
+          vec3 vd = normalize(vViewPos);
+          vec3 xx = normalize(vec3(vd.z, 0.0, -vd.x));
+          vec3 yy = cross(vd, xx);
+          vec2 uv = vec2(dot(xx, n), dot(yy, n)) * 0.495 + 0.5;
+          vec3 col = texture2D(matcap, uv).rgb;
+          if (u_pickShow > 0.5) {
+            col = applyRing(col, u_pick0, u_pickActive.x);
+            col = applyRing(col, u_pick1, u_pickActive.y);
+            col = applyRing(col, u_pick2, u_pickActive.z);
+          }
+          gl_FragColor = vec4(col, opacity);
+        }
+      `
+    });
 
     function makeFixedMaterial(matcapName) {
       const mat = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide, fog: false });
@@ -533,7 +533,7 @@
     // --- Swatch bar (controls shell only) ---
     function applyMatcap(index) {
       texLoader.load('/matcaps/' + MATCAPS[index], tex => {
-        shellMaterial.matcap = tex; shellMaterial.needsUpdate = true;
+        shellMaterial.uniforms.matcap.value = tex;
       });
       document.querySelectorAll('.swatch').forEach((el, i) =>
         el.classList.toggle('active', i === index));
@@ -555,8 +555,7 @@
     const alphaValue  = document.getElementById('alpha-value');
     alphaSlider.addEventListener('input', () => {
       const val = alphaSlider.value / 100;   // min=25 → 0.25, max=100 → 1.00
-      shellMaterial.opacity = val;
-      shellMaterial.needsUpdate = true;
+      shellMaterial.uniforms.opacity.value = val;
       alphaValue.textContent = val.toFixed(2);
     });
 
@@ -826,14 +825,16 @@
     // Update the shell shader ring uniform for slot key.
     // Pass a THREE.Vector3 pos to activate, or null to clear.
     function updatePickUniform(key, pos) {
-      const idx     = { A: 0, B: 1, C: 2 }[key];
-      const posUni  = [pickUniforms.u_pick0, pickUniforms.u_pick1, pickUniforms.u_pick2][idx];
+      const idx    = { A: 0, B: 1, C: 2 }[key];
+      const posUni = [shellMaterial.uniforms.u_pick0,
+                      shellMaterial.uniforms.u_pick1,
+                      shellMaterial.uniforms.u_pick2][idx];
       if (pos) {
         posUni.value.copy(pos);
-        pickUniforms.u_pickActive.value.setComponent(idx, 1.0);
+        shellMaterial.uniforms.u_pickActive.value.setComponent(idx, 1.0);
       } else {
         posUni.value.set(0, 0, 0);
-        pickUniforms.u_pickActive.value.setComponent(idx, 0.0);
+        shellMaterial.uniforms.u_pickActive.value.setComponent(idx, 0.0);
       }
     }
     let activePickKey  = null;
@@ -859,13 +860,13 @@
           if (pickState[key].sphere)  pickState[key].sphere.visible  = false;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = false;
         }
-        pickUniforms.u_pickShow.value = 0.0;
+        shellMaterial.uniforms.u_pickShow.value = 0.0;
       } else {
         for (const key of ['A','B','C']) {
           if (pickState[key].sphere)  pickState[key].sphere.visible  = true;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = true;
         }
-        pickUniforms.u_pickShow.value = 1.0;
+        shellMaterial.uniforms.u_pickShow.value = 1.0;
       }
     });
 
