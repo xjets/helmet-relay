@@ -380,10 +380,16 @@
     // Ring radii (world units): yellow 0-4, red 4-8, blue 8-18, black 18-26.
     // Sphere (r=8) occludes yellow+red via depth buffer.
     // Mirror handled in shader: d = min(dist, dist_to_-X_counterpart).
+    // Seed matcap with a visible mid-gray DataTexture so the shell is never
+    // black/invisible while the real matcap texture loads asynchronously.
+    const _initMatcap = new THREE.DataTexture(
+      new Uint8Array([140, 140, 140, 255]), 1, 1);
+    _initMatcap.needsUpdate = true;
+
     const shellMaterial = new THREE.ShaderMaterial({
       side: THREE.DoubleSide, transparent: true, fog: false,
       uniforms: {
-        matcap:       { value: null },
+        matcap:       { value: _initMatcap },
         opacity:      { value: DEFAULT_SHELL_ALPHA },
         u_pick0:      { value: new THREE.Vector3() },
         u_pick1:      { value: new THREE.Vector3() },
@@ -393,12 +399,14 @@
       },
       vertexShader: `
         varying vec3 vViewPos;
+        varying vec3 vWorldNormal;
         varying vec3 vWorldPos;
         void main() {
-          vec4 mv     = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mv;
-          vViewPos    = -mv.xyz;
-          vWorldPos   = (modelMatrix * vec4(position, 1.0)).xyz;
+          vec4 mv      = modelViewMatrix * vec4(position, 1.0);
+          gl_Position  = projectionMatrix * mv;
+          vViewPos     = -mv.xyz;
+          vWorldNormal = mat3(modelMatrix) * normal;
+          vWorldPos    = (modelMatrix * vec4(position, 1.0)).xyz;
         }
       `,
       fragmentShader: `
@@ -407,6 +415,7 @@
         uniform vec3      u_pick0, u_pick1, u_pick2, u_pickActive;
         uniform float     u_pickShow;
         varying vec3 vViewPos;
+        varying vec3 vWorldNormal;
         varying vec3 vWorldPos;
 
         vec3 applyRing(vec3 col, vec3 p, float active) {
@@ -422,10 +431,9 @@
         }
 
         void main() {
-          // Derive view-space normal from screen-space derivatives of vViewPos.
-          // Avoids normalMatrix entirely; works on any dense mesh.
-          vec3 n  = normalize(cross(dFdx(vViewPos), dFdy(vViewPos)));
-          if (!gl_FrontFacing) n = -n;
+          vec3 wn = normalize(vWorldNormal);
+          if (!gl_FrontFacing) wn = -wn;
+          vec3 n  = normalize((viewMatrix * vec4(wn, 0.0)).xyz);
           vec3 vd = normalize(vViewPos);
           vec3 xx = normalize(vec3(vd.z, 0.0, -vd.x));
           vec3 yy = cross(vd, xx);
