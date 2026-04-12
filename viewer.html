@@ -393,13 +393,11 @@
       },
       vertexShader: `
         varying vec3 vViewPos;
-        varying vec3 vNorm;
         varying vec3 vWorldPos;
         void main() {
           vec4 mv     = modelViewMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * mv;
           vViewPos    = -mv.xyz;
-          vNorm       = normalMatrix * normal;
           vWorldPos   = (modelMatrix * vec4(position, 1.0)).xyz;
         }
       `,
@@ -409,7 +407,6 @@
         uniform vec3      u_pick0, u_pick1, u_pick2, u_pickActive;
         uniform float     u_pickShow;
         varying vec3 vViewPos;
-        varying vec3 vNorm;
         varying vec3 vWorldPos;
 
         vec3 applyRing(vec3 col, vec3 p, float active) {
@@ -425,7 +422,9 @@
         }
 
         void main() {
-          vec3 n  = normalize(vNorm);
+          // Derive view-space normal from screen-space derivatives of vViewPos.
+          // Avoids normalMatrix entirely; works on any dense mesh.
+          vec3 n  = normalize(cross(dFdx(vViewPos), dFdy(vViewPos)));
           if (!gl_FrontFacing) n = -n;
           vec3 vd = normalize(vViewPos);
           vec3 xx = normalize(vec3(vd.z, 0.0, -vd.x));
