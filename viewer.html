@@ -379,6 +379,69 @@
       side: THREE.DoubleSide, transparent: true, opacity: DEFAULT_SHELL_ALPHA, fog: false,
     });
 
+    // Pick-point uniforms — injected into the shell shader (defined here so
+    // onBeforeCompile can close over them; values updated by updatePickUniform)
+    const pickUniforms = {
+      u_pick0:      { value: new THREE.Vector3() },
+      u_pick1:      { value: new THREE.Vector3() },
+      u_pick2:      { value: new THREE.Vector3() },
+      u_pickActive: { value: new THREE.Vector3() },  // x=A, y=B, z=C active flags
+      u_pickShow:   { value: 1.0 }
+    };
+
+    // Inject bullseye ring logic into the shell matcap shader.
+    // Rings are computed in world space — no extra geometry needed.
+    // Ring radii (world units): yellow 0-4, red 4-8, blue 8-18, black 18-26.
+    // Sphere (r=8) sits at centre and naturally covers yellow+red rings.
+    // Mirror is handled inside the shader: d = min(dist, dist to -X counterpart).
+    shellMaterial.onBeforeCompile = shader => {
+      shader.uniforms.u_pick0      = pickUniforms.u_pick0;
+      shader.uniforms.u_pick1      = pickUniforms.u_pick1;
+      shader.uniforms.u_pick2      = pickUniforms.u_pick2;
+      shader.uniforms.u_pickActive = pickUniforms.u_pickActive;
+      shader.uniforms.u_pickShow   = pickUniforms.u_pickShow;
+
+      // Vertex: inject world-position varying
+      shader.vertexShader = 'varying vec3 vWorldPos;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nvWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+
+      // Fragment: declare uniforms + varying, then paint rings before output
+      shader.fragmentShader =
+        'varying vec3 vWorldPos;\n' +
+        'uniform vec3 u_pick0, u_pick1, u_pick2;\n' +
+        'uniform vec3 u_pickActive;\n' +
+        'uniform float u_pickShow;\n' +
+        shader.fragmentShader;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <output_fragment>',
+        `if (u_pickShow > 0.5) {
+          vec3 pickPos[3]; pickPos[0] = u_pick0; pickPos[1] = u_pick1; pickPos[2] = u_pick2;
+          float pickAct[3]; pickAct[0] = u_pickActive.x; pickAct[1] = u_pickActive.y; pickAct[2] = u_pickActive.z;
+          for (int i = 0; i < 3; i++) {
+            if (pickAct[i] < 0.5) continue;
+            float d1 = length(vWorldPos - pickPos[i]);
+            float d2 = length(vWorldPos - vec3(-pickPos[i].x, pickPos[i].y, pickPos[i].z));
+            float d = min(d1, d2);
+            if (d >= 26.0) continue;
+            vec3 rCol;
+            if      (d <  4.0) rCol = vec3(1.00, 0.86, 0.00); // yellow
+            else if (d <  8.0) rCol = vec3(0.88, 0.06, 0.06); // red
+            else if (d < 18.0) rCol = vec3(0.12, 0.25, 0.80); // blue
+            else               rCol = vec3(0.00, 0.00, 0.00); // black
+            float fw = fwidth(d);
+            float ringA = 1.0 - smoothstep(26.0 - fw * 2.0, 26.0, d);
+            outgoingLight = mix(outgoingLight, rCol, ringA);
+          }
+        }
+        #include <output_fragment>`
+      );
+    };
+    shellMaterial.customProgramCacheKey = () => 'shell-with-picks';
+
     function makeFixedMaterial(matcapName) {
       const mat = new THREE.MeshMatcapMaterial({ side: THREE.DoubleSide, fog: false });
       texLoader.load('/matcaps/' + matcapName, tex => { mat.matcap = tex; mat.needsUpdate = true; });
@@ -755,40 +818,24 @@
       C: { hex: '#4499ff', three: 0x4499ff, rgb: [0.27, 0.60, 1.0 ] }
     };
     const pickState = {
-      A: { active: false, sphere: null, disc: null, sphere2: null, disc2: null },
-      B: { active: false, sphere: null, disc: null, sphere2: null, disc2: null },
-      C: { active: false, sphere: null, disc: null, sphere2: null, disc2: null }
+      A: { active: false, sphere: null, sphere2: null },
+      B: { active: false, sphere: null, sphere2: null },
+      C: { active: false, sphere: null, sphere2: null }
     };
 
-    // Shared disc geometry — radius 25, reused for all picks
-    const discGeo = new THREE.CircleGeometry(25, 64);
-
-    // Classic bullseye target — yellow / red / blue / black
-    // Ring UV boundaries chosen so sphere (r=8, UV=0.32) lands exactly
-    // on the red→blue edge, covering the two inner rings.
-    const targetDiscMaterial = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-      vertexShader: `
-        varying vec2 vUv;
-        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }
-      `,
-      fragmentShader: `
-        varying vec2 vUv;
-        void main() {
-          float d = length(vUv - vec2(0.5)) * 2.0;
-          float fw = fwidth(d) * 1.5;
-          if (d > 1.0) { gl_FragColor = vec4(0.0); return; }
-          vec3 col;
-          if      (d < 0.16) col = vec3(1.00, 0.86, 0.00); // yellow (inner)
-          else if (d < 0.32) col = vec3(0.88, 0.06, 0.06); // red
-          else if (d < 0.66) col = vec3(0.12, 0.25, 0.80); // blue
-          else               col = vec3(0.00, 0.00, 0.00); // black (outer)
-          float alpha = 1.0 - smoothstep(1.0 - fw, 1.0, d);
-          gl_FragColor = vec4(col, alpha);
-        }
-      `
-    });
+    // Update the shell shader ring uniform for slot key.
+    // Pass a THREE.Vector3 pos to activate, or null to clear.
+    function updatePickUniform(key, pos) {
+      const idx     = { A: 0, B: 1, C: 2 }[key];
+      const posUni  = [pickUniforms.u_pick0, pickUniforms.u_pick1, pickUniforms.u_pick2][idx];
+      if (pos) {
+        posUni.value.copy(pos);
+        pickUniforms.u_pickActive.value.setComponent(idx, 1.0);
+      } else {
+        posUni.value.set(0, 0, 0);
+        pickUniforms.u_pickActive.value.setComponent(idx, 0.0);
+      }
+    }
     let activePickKey  = null;
     let selectPtsOn    = false;  // master visibility
 
@@ -810,17 +857,15 @@
         }
         for (const key of ['A','B','C']) {
           if (pickState[key].sphere)  pickState[key].sphere.visible  = false;
-          if (pickState[key].disc)    pickState[key].disc.visible    = false;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = false;
-          if (pickState[key].disc2)   pickState[key].disc2.visible   = false;
         }
+        pickUniforms.u_pickShow.value = 0.0;
       } else {
         for (const key of ['A','B','C']) {
           if (pickState[key].sphere)  pickState[key].sphere.visible  = true;
-          if (pickState[key].disc)    pickState[key].disc.visible    = true;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = true;
-          if (pickState[key].disc2)   pickState[key].disc2.visible   = true;
         }
+        pickUniforms.u_pickShow.value = 1.0;
       }
     });
 
@@ -834,11 +879,10 @@
           pickButtonsEl.classList.add('visible');
         }
         if (activePickKey === key) {
-          // Second click without pick: clear sphere + disc (both sides) + deactivate
+          // Second click without pick: clear spheres + shader ring + deactivate
           if (pickState[key].sphere)  { scene.remove(pickState[key].sphere);  pickState[key].sphere  = null; }
-          if (pickState[key].disc)    { scene.remove(pickState[key].disc);    pickState[key].disc    = null; }
           if (pickState[key].sphere2) { scene.remove(pickState[key].sphere2); pickState[key].sphere2 = null; }
-          if (pickState[key].disc2)   { scene.remove(pickState[key].disc2);   pickState[key].disc2   = null; }
+          updatePickUniform(key, null);
           document.getElementById('pick-' + key.toLowerCase()).classList.remove('active','placed');
           activePickKey    = null;
           controls.enabled = true;
@@ -879,17 +923,9 @@
       // Three.js → Rhino space: X=x, Y=-z, Z=y
       const rx = pt.x, ry = -pt.z, rz = pt.y;
 
-      // Remove old sphere + disc (both sides) for this slot
+      // Remove old spheres for this slot
       if (pickState[key].sphere)  scene.remove(pickState[key].sphere);
-      if (pickState[key].disc)    scene.remove(pickState[key].disc);
       if (pickState[key].sphere2) scene.remove(pickState[key].sphere2);
-      if (pickState[key].disc2)   scene.remove(pickState[key].disc2);
-
-      // Surface normal at hit point
-      const normal = hits[0].face.normal.clone()
-        .transformDirection(hits[0].object.matrixWorld).normalize();
-      // Mirrored normal: negate X (YZ-plane symmetry)
-      const normalM = new THREE.Vector3(-normal.x, normal.y, normal.z).normalize();
 
       // ── Primary side ──────────────────────────────────────────────────────────
       const sphere = new THREE.Mesh(
@@ -900,15 +936,8 @@
       scene.add(sphere);
       pickState[key].sphere = sphere;
 
-      const disc = new THREE.Mesh(discGeo, targetDiscMaterial);
-      disc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-      disc.position.copy(pt).addScaledVector(normal, 0.5);
-      scene.add(disc);
-      pickState[key].disc = disc;
-
       // ── Mirrored side (X → -X) ────────────────────────────────────────────────
       const ptM = new THREE.Vector3(-pt.x, pt.y, pt.z);
-
       const sphere2 = new THREE.Mesh(
         new THREE.SphereGeometry(8, 12, 12),
         new THREE.MeshBasicMaterial({ color: PICK_DEFS[key].three })
@@ -917,11 +946,8 @@
       scene.add(sphere2);
       pickState[key].sphere2 = sphere2;
 
-      const disc2 = new THREE.Mesh(discGeo, targetDiscMaterial);
-      disc2.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normalM);
-      disc2.position.copy(ptM).addScaledVector(normalM, 0.5);
-      scene.add(disc2);
-      pickState[key].disc2 = disc2;
+      // Paint rings into shell shader (mirror handled in GLSL)
+      updatePickUniform(key, pt);
 
       // Update button state
       const btn = document.getElementById('pick-' + key.toLowerCase());
