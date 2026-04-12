@@ -390,10 +390,9 @@
     };
 
     // Inject bullseye ring logic into the shell matcap shader.
-    // Rings are computed in world space — no extra geometry needed.
+    // Fully unrolled — no dynamic array indexing (avoids silent GLSL compile errors).
     // Ring radii (world units): yellow 0-4, red 4-8, blue 8-18, black 18-26.
-    // Sphere (r=8) sits at centre and naturally covers yellow+red rings.
-    // Mirror is handled inside the shader: d = min(dist, dist to -X counterpart).
+    // Sphere (r=8) covers yellow+red. Mirror computed in GLSL (d = min dist to ±X).
     shellMaterial.onBeforeCompile = shader => {
       shader.uniforms.u_pick0      = pickUniforms.u_pick0;
       shader.uniforms.u_pick1      = pickUniforms.u_pick1;
@@ -401,41 +400,42 @@
       shader.uniforms.u_pickActive = pickUniforms.u_pickActive;
       shader.uniforms.u_pickShow   = pickUniforms.u_pickShow;
 
-      // Vertex: inject world-position varying
+      // Vertex: pass world position to fragment shader
       shader.vertexShader = 'varying vec3 vWorldPos;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace(
         '#include <project_vertex>',
         '#include <project_vertex>\nvWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
       );
 
-      // Fragment: declare uniforms + varying, then paint rings before output
+      // Fragment: declare pars + inject ring computation before output
       shader.fragmentShader =
         'varying vec3 vWorldPos;\n' +
-        'uniform vec3 u_pick0, u_pick1, u_pick2;\n' +
-        'uniform vec3 u_pickActive;\n' +
+        'uniform vec3 u_pick0, u_pick1, u_pick2, u_pickActive;\n' +
         'uniform float u_pickShow;\n' +
         shader.fragmentShader;
+
+      // Unrolled ring function — one block per slot, no loops or array indexing
+      const ringGLSL = (pickUniform, activeSwizzle) => `
+        {
+          float _d = min(
+            length(vWorldPos - ${pickUniform}),
+            length(vWorldPos - vec3(-${pickUniform}.x, ${pickUniform}.y, ${pickUniform}.z))
+          );
+          if (u_pickActive.${activeSwizzle} > 0.5 && _d < 26.0) {
+            vec3 _rc = vec3(0.0, 0.0, 0.0);
+            if      (_d <  4.0) _rc = vec3(1.00, 0.86, 0.00);
+            else if (_d <  8.0) _rc = vec3(0.88, 0.06, 0.06);
+            else if (_d < 18.0) _rc = vec3(0.12, 0.25, 0.80);
+            outgoingLight = mix(outgoingLight, _rc, 1.0 - smoothstep(24.0, 26.0, _d));
+          }
+        }`;
 
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <output_fragment>',
         `if (u_pickShow > 0.5) {
-          vec3 pickPos[3]; pickPos[0] = u_pick0; pickPos[1] = u_pick1; pickPos[2] = u_pick2;
-          float pickAct[3]; pickAct[0] = u_pickActive.x; pickAct[1] = u_pickActive.y; pickAct[2] = u_pickActive.z;
-          for (int i = 0; i < 3; i++) {
-            if (pickAct[i] < 0.5) continue;
-            float d1 = length(vWorldPos - pickPos[i]);
-            float d2 = length(vWorldPos - vec3(-pickPos[i].x, pickPos[i].y, pickPos[i].z));
-            float d = min(d1, d2);
-            if (d >= 26.0) continue;
-            vec3 rCol;
-            if      (d <  4.0) rCol = vec3(1.00, 0.86, 0.00); // yellow
-            else if (d <  8.0) rCol = vec3(0.88, 0.06, 0.06); // red
-            else if (d < 18.0) rCol = vec3(0.12, 0.25, 0.80); // blue
-            else               rCol = vec3(0.00, 0.00, 0.00); // black
-            float fw = fwidth(d);
-            float ringA = 1.0 - smoothstep(26.0 - fw * 2.0, 26.0, d);
-            outgoingLight = mix(outgoingLight, rCol, ringA);
-          }
+          ${ringGLSL('u_pick0', 'x')}
+          ${ringGLSL('u_pick1', 'y')}
+          ${ringGLSL('u_pick2', 'z')}
         }
         #include <output_fragment>`
       );
