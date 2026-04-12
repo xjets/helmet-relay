@@ -374,79 +374,9 @@
     const texLoader = new THREE.TextureLoader();
 
     // --- Materials ---
-    // Shell: custom ShaderMaterial — matcap rendering + bullseye ring overlay.
-    // Using ShaderMaterial avoids all onBeforeCompile fragility; uniforms are
-    // first-class and update reliably on every render.
-    // Ring radii (world units): yellow 0-4, red 4-8, blue 8-18, black 18-26.
-    // Sphere (r=8) occludes yellow+red via depth buffer.
-    // Mirror handled in shader: d = min(dist, dist_to_-X_counterpart).
-    // Seed matcap with a visible mid-gray DataTexture so the shell is never
-    // black/invisible while the real matcap texture loads asynchronously.
-    const _initMatcap = new THREE.DataTexture(
-      new Uint8Array([140, 140, 140, 255]), 1, 1);
-    _initMatcap.needsUpdate = true;
-
-    const shellMaterial = new THREE.ShaderMaterial({
+    const shellMaterial = new THREE.MeshMatcapMaterial({
       side: THREE.DoubleSide, transparent: true, fog: false,
-      uniforms: {
-        matcap:       { value: _initMatcap },
-        opacity:      { value: DEFAULT_SHELL_ALPHA },
-        u_pick0:      { value: new THREE.Vector3() },
-        u_pick1:      { value: new THREE.Vector3() },
-        u_pick2:      { value: new THREE.Vector3() },
-        u_pickActive: { value: new THREE.Vector3() },
-        u_pickShow:   { value: 1.0 },
-      },
-      vertexShader: `
-        varying vec3 vViewPos;
-        varying vec3 vWorldNormal;
-        varying vec3 vWorldPos;
-        void main() {
-          vec4 mv      = modelViewMatrix * vec4(position, 1.0);
-          gl_Position  = projectionMatrix * mv;
-          vViewPos     = -mv.xyz;
-          vWorldNormal = mat3(modelMatrix) * normal;
-          vWorldPos    = (modelMatrix * vec4(position, 1.0)).xyz;
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D matcap;
-        uniform float     opacity;
-        uniform vec3      u_pick0, u_pick1, u_pick2, u_pickActive;
-        uniform float     u_pickShow;
-        varying vec3 vViewPos;
-        varying vec3 vWorldNormal;
-        varying vec3 vWorldPos;
-
-        vec3 applyRing(vec3 col, vec3 p, float active) {
-          if (active < 0.5) return col;
-          float d = min(length(vWorldPos - p),
-                        length(vWorldPos - vec3(-p.x, p.y, p.z)));
-          if (d >= 26.0) return col;
-          vec3 rc = vec3(0.0);
-          if      (d <  4.0) rc = vec3(1.00, 0.86, 0.00);
-          else if (d <  8.0) rc = vec3(0.88, 0.06, 0.06);
-          else if (d < 18.0) rc = vec3(0.12, 0.25, 0.80);
-          return mix(col, rc, 1.0 - smoothstep(24.0, 26.0, d));
-        }
-
-        void main() {
-          vec3 wn = normalize(vWorldNormal);
-          if (!gl_FrontFacing) wn = -wn;
-          vec3 n  = normalize((viewMatrix * vec4(wn, 0.0)).xyz);
-          vec3 vd = normalize(vViewPos);
-          vec3 xx = normalize(vec3(vd.z, 0.0, -vd.x));
-          vec3 yy = cross(vd, xx);
-          vec2 uv = vec2(dot(xx, n), dot(yy, n)) * 0.495 + 0.5;
-          vec3 col = texture2D(matcap, uv).rgb;
-          if (u_pickShow > 0.5) {
-            col = applyRing(col, u_pick0, u_pickActive.x);
-            col = applyRing(col, u_pick1, u_pickActive.y);
-            col = applyRing(col, u_pick2, u_pickActive.z);
-          }
-          gl_FragColor = vec4(col, opacity);
-        }
-      `
+      opacity: DEFAULT_SHELL_ALPHA,
     });
 
     function makeFixedMaterial(matcapName) {
@@ -540,7 +470,8 @@
     // --- Swatch bar (controls shell only) ---
     function applyMatcap(index) {
       texLoader.load('/matcaps/' + MATCAPS[index], tex => {
-        shellMaterial.uniforms.matcap.value = tex;
+        shellMaterial.matcap = tex;
+        shellMaterial.needsUpdate = true;
       });
       document.querySelectorAll('.swatch').forEach((el, i) =>
         el.classList.toggle('active', i === index));
@@ -562,7 +493,7 @@
     const alphaValue  = document.getElementById('alpha-value');
     alphaSlider.addEventListener('input', () => {
       const val = alphaSlider.value / 100;   // min=25 → 0.25, max=100 → 1.00
-      shellMaterial.uniforms.opacity.value = val;
+      shellMaterial.opacity = val;
       alphaValue.textContent = val.toFixed(2);
     });
 
@@ -829,21 +760,6 @@
       C: { active: false, sphere: null, sphere2: null }
     };
 
-    // Update the shell shader ring uniform for slot key.
-    // Pass a THREE.Vector3 pos to activate, or null to clear.
-    function updatePickUniform(key, pos) {
-      const idx    = { A: 0, B: 1, C: 2 }[key];
-      const posUni = [shellMaterial.uniforms.u_pick0,
-                      shellMaterial.uniforms.u_pick1,
-                      shellMaterial.uniforms.u_pick2][idx];
-      if (pos) {
-        posUni.value.copy(pos);
-        shellMaterial.uniforms.u_pickActive.value.setComponent(idx, 1.0);
-      } else {
-        posUni.value.set(0, 0, 0);
-        shellMaterial.uniforms.u_pickActive.value.setComponent(idx, 0.0);
-      }
-    }
     let activePickKey  = null;
     let selectPtsOn    = false;  // master visibility
 
@@ -867,13 +783,11 @@
           if (pickState[key].sphere)  pickState[key].sphere.visible  = false;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = false;
         }
-        shellMaterial.uniforms.u_pickShow.value = 0.0;
       } else {
         for (const key of ['A','B','C']) {
           if (pickState[key].sphere)  pickState[key].sphere.visible  = true;
           if (pickState[key].sphere2) pickState[key].sphere2.visible = true;
         }
-        shellMaterial.uniforms.u_pickShow.value = 1.0;
       }
     });
 
@@ -890,7 +804,6 @@
           // Second click without pick: clear spheres + shader ring + deactivate
           if (pickState[key].sphere)  { scene.remove(pickState[key].sphere);  pickState[key].sphere  = null; }
           if (pickState[key].sphere2) { scene.remove(pickState[key].sphere2); pickState[key].sphere2 = null; }
-          updatePickUniform(key, null);
           document.getElementById('pick-' + key.toLowerCase()).classList.remove('active','placed');
           activePickKey    = null;
           controls.enabled = true;
@@ -953,9 +866,6 @@
       sphere2.position.copy(ptM);
       scene.add(sphere2);
       pickState[key].sphere2 = sphere2;
-
-      // Paint rings into shell shader (mirror handled in GLSL)
-      updatePickUniform(key, pt);
 
       // Update button state
       const btn = document.getElementById('pick-' + key.toLowerCase());
